@@ -1,4 +1,6 @@
-from datetime import datetime
+import math
+from datetime import datetime, timezone
+from decimal import Decimal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -10,6 +12,14 @@ def _get_zone(timezone_name: str):
             "Unknown timezone. Use an IANA name like UTC, Asia/Kolkata, "
             "America/New_York, or Europe/London."
         )
+
+
+def _timestamp_scale(unit: str) -> int:
+    if unit == "seconds":
+        return 1
+    if unit == "milliseconds":
+        return 1000
+    raise ValueError("Unit must be seconds or milliseconds")
 
 
 def register(mcp):
@@ -50,3 +60,36 @@ def register(mcp):
             return converted.isoformat(timespec="seconds")
         except Exception as e:
             return f"Error: {e}"
+
+    @mcp.tool()
+    def timestamp_to_datetime(
+        timestamp: float, timezone_name: str = "UTC", unit: str = "seconds"
+    ) -> str:
+        """Convert a Unix timestamp to an ISO datetime in an IANA timezone.
+        The unit must be seconds or milliseconds. Negative timestamps are supported.
+        """
+        try:
+            scale = _timestamp_scale(unit)
+            if not math.isfinite(timestamp):
+                raise ValueError("Timestamp must be finite")
+            zone = _get_zone(timezone_name.strip() or "UTC")
+            return datetime.fromtimestamp(timestamp / scale, tz=zone).isoformat()
+        except (ValueError, OverflowError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
+    def datetime_to_timestamp(datetime_text: str, unit: str = "seconds") -> str:
+        """Convert an ISO datetime to a Unix timestamp in seconds or milliseconds.
+        Respects an explicit UTC offset or Z suffix. A datetime without an offset
+        is interpreted as UTC. Preserves fractional seconds to microsecond precision.
+        """
+        try:
+            scale = _timestamp_scale(unit)
+            parsed = datetime.fromisoformat(datetime_text.strip())
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            delta = parsed.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)
+            microseconds = (delta.days * 86400 + delta.seconds) * 1000000 + delta.microseconds
+            return format(Decimal(microseconds) * scale / 1000000, "f")
+        except (ValueError, OverflowError) as error:
+            return f"Error: {error}"

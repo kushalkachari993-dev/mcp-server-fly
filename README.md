@@ -29,6 +29,136 @@ Available tools
 - `test_regex(pattern, text, flags)` - test regular expressions and list matches.
 - `format_sql(sql)` - lightweight SQL formatting.
 - `http_request(url, method, headers_json, body, timeout_seconds)` - make public HTTP requests with private/local hosts blocked.
+- `csv_to_json(csv_text, delimiter)` - convert CSV/TSV with headers to JSON objects.
+- `json_to_csv(value, delimiter)` - convert flat JSON objects to CSV/TSV.
+- `query_json(value, pointer)` - extract a JSON value using JSON Pointer syntax.
+- `compare_json(before, after)` - report added, removed, and changed JSON values.
+- `timestamp_to_datetime(timestamp, timezone_name, unit)` - convert Unix seconds/milliseconds to an ISO datetime.
+- `datetime_to_timestamp(datetime_text, unit)` - convert an ISO datetime to Unix seconds/milliseconds.
+- `get_webpage_text(url, max_chars)` - extract readable article/main text from a public webpage.
+- `validate_json_schema(value, schema)` - validate JSON fields and types against a JSON Schema.
+- `yaml_to_json(value)` - safely convert one YAML document to JSON.
+- `json_to_yaml(value)` - convert JSON to YAML while preserving object key order.
+- `cron_next_runs(expression, timezone_name, count, from_datetime)` - preview upcoming cron execution times.
+- `read_rss_feed(url, limit)` - read news, posts, or releases from a public RSS/Atom feed.
+- `extract_webpage_links(url, same_domain_only, limit)` - extract unique webpage links and labels.
+- `extract_html_tables(url, max_tables, max_rows)` - convert webpage tables to structured JSON.
+- `summarize_numbers(values)` - calculate descriptive statistics for a numeric array.
+- `diff_text(before, after, context_lines, max_chars)` - compare text using a unified diff.
+- `convert_units(value, from_unit, to_unit)` - convert compatible physical units with Pint.
+
+Data utility examples
+---------------------
+
+```text
+csv_to_json(csv_text="name,city\nAda,London\n")
+query_json(value='{"users":[{"name":"Ada"}]}', pointer="/users/0/name")
+compare_json(before='{"count":1}', after='{"count":2}')
+timestamp_to_datetime(timestamp=0, timezone_name="UTC")
+datetime_to_timestamp(datetime_text="1970-01-01T00:00:00Z")
+```
+
+CSV conversion preserves strings instead of guessing data types. It accepts at
+most 1,000 data rows and 200,000 input characters. JSON lookup and comparison
+also limit each input to 200,000 characters. Comparison reports at most 100
+differences; its `truncated` field indicates when more differences were found.
+
+Research and configuration examples
+-----------------------------------
+
+```text
+get_webpage_text(url="https://example.com", max_chars=2000)
+validate_json_schema(value='{"count":2}', schema='{"type":"object","required":["count"]}')
+yaml_to_json(value="name: Ada\nenabled: true\n")
+json_to_yaml(value='{"name":"Ada","enabled":true}')
+cron_next_runs(expression="*/15 * * * *", timezone_name="Asia/Kolkata", count=3)
+```
+
+Webpage extraction does not execute JavaScript. It accepts HTTP/HTTPS on ports
+80/443, blocks non-public destinations including redirects, verifies TLS using
+the original hostname, and caps downloads at 1 MB and returned text at 50,000
+characters. It returns JSON with `url`, `title`, `text`, and `truncated` fields.
+
+Schema validation defaults to draft 2020-12 and returns `valid`, `errors`, and
+`truncated`. Local `$ref` definitions work; remote references are not downloaded.
+Installed format checks are enabled, with unknown formats left unchecked. A
+separate worker enforces a three-second limit, and at most 50 errors are returned.
+
+YAML conversion accepts one document and preserves dates as strings. It uses
+YAML 1.1 boolean rules, rejects unsafe tags and duplicate/non-string mapping
+keys, and limits alias expansion and nesting. Input/output limits are 200,000
+characters, 10,000 nodes, and 100 nested levels.
+
+Cron previews use five fields: minute, hour, day-of-month, month, day-of-week.
+The tool returns 1-20 upcoming runs strictly after the supplied start time (or
+now), using the selected IANA timezone. It previews schedules only; it does not
+create jobs. Each next-run search is limited to five years.
+
+Research and analysis examples
+------------------------------
+
+```text
+read_rss_feed(url="https://www.djangoproject.com/rss/weblog/", limit=5)
+extract_webpage_links(url="https://example.com", same_domain_only=true)
+extract_html_tables(url="https://docs.python.org/3.12/library/statistics.html", max_tables=1)
+summarize_numbers(values=[1, 2, 3, 4])
+diff_text(before="old\n", after="new\n")
+convert_units(value=36, from_unit="kilometer/hour", to_unit="meter/second")
+convert_units(value=0, from_unit="degC", to_unit="degF")
+```
+
+The three web tools reuse the same public-only, redirect-checked, 1 MB fetcher.
+They do not execute JavaScript or follow extracted links. Link extraction
+resolves relative URLs and HTML base tags, removes fragments, and deduplicates
+URLs. `same_domain_only` means the final page's exact hostname (not subdomains).
+It returns at most 500 links, with labels capped at 1,000 characters.
+
+Feed reading supports RSS and Atom and returns entries in source order, not
+necessarily newest first. It accepts 1-50 entries and returns title, URL,
+publication string, and plain-text summary. Titles, dates, and summaries are
+capped at 1,000, 200, and 2,000 characters. `truncated` indicates more entries
+exist; `parse_warning` indicates a recoverable parser problem. Feeds are fetched
+on demand, not monitored in the background. No additional API keys are needed.
+
+Table extraction returns `caption`, `headers`, and `rows` (arrays of strings)
+for each table. Positive rowspan/colspan repeat text; missing cells are padded.
+Only an all-th first row becomes headers; later header rows remain data.
+Nested tables are ignored. Limits are 20 tables, 1,000 data rows per table, 50
+columns, 2,000 characters per cell, and 200,000 output characters. Truncation
+flags mark table/row/cell limits; oversized combined output returns an error.
+
+Number summaries accept 1-10,000 finite numbers, rejecting strings and booleans.
+The result includes both population and sample standard deviation; the sample
+value is null for one observation. Results outside the numeric range return an
+error. Diffs accept 100,000 characters and 1,000 lines per input, preserve line
+endings, and mark missing final newlines. Context is 0-10 lines and returned diff
+text is capped at 100-50,000 characters, with a `truncated` flag.
+
+Unit conversion supports physical units and compound units such as
+`kilometer/hour` and `meter**2`, including offset temperatures `degC`/`degF`.
+Use `delta_degC`/`delta_degF` for temperature differences. Unit names are
+case-sensitive and accept `*`, `/`, and integer powers from -12 to 12, with
+at most 100 characters. Incompatible or unknown units return an error. Currency
+conversion, custom definitions, and conversion contexts are not supported.
+
+Run the focused utility tests:
+
+```powershell
+uv run python -m unittest discover -s tests -v
+```
+
+After deploying, test the live MCP connection and the new tools:
+
+```powershell
+uv run python scripts/test_deployed_mcp.py
+```
+
+The script reads `MCP_API_KEY` from the environment or the project's ignored
+`.env` file. The local test suite uses mocked HTTP responses; the deployment
+script makes an authenticated MCP connection and fetches `https://example.com`.
+It also fetches the Django weblog RSS feed and the Python statistics documentation
+to verify feed and table extraction, then checks the numeric, diff, and unit
+tools. The live suite currently makes 21 authenticated tool calls.
 
 Configuration
 -------------

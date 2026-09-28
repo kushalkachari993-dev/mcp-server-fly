@@ -12,6 +12,15 @@ dependencies = [
     "starlette>=1.0.0",
     "sse-starlette>=3.3.4",
     "fastapi>=0.135.3",
+    "beautifulsoup4>=4.13,<5",
+    "croniter>=6,<7",
+    "jsonschema>=4.26,<5",
+    "pyyaml>=6,<7",
+    "urllib3>=2.6.3,<3",
+    "tzdata>=2025.2",
+    "anyio>=4.13,<5",
+    "feedparser>=6.0.12,<7",
+    "pint>=0.25,<0.26",
 ]
 
 [tool.uv]
