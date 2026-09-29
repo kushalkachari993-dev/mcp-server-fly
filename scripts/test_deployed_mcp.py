@@ -48,6 +48,8 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "json_to_yaml", "cron_next_runs",
                 "read_rss_feed", "extract_webpage_links", "extract_html_tables",
                 "summarize_numbers", "diff_text", "convert_units",
+                "extract_pdf_text", "get_github_file", "get_github_issue",
+                "get_github_pull_request", "list_github_releases", "inspect_openapi",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -125,7 +127,27 @@ async def run_test(base_url: str, api_key: str) -> None:
                         lambda text: math.isclose(json.loads(text)["result"], 10))
             await check("convert_units", {"value": 0, "from_unit": "degC", "to_unit": "degF"},
                         lambda text: math.isclose(json.loads(text)["result"], 32))
-            print("PASS: 21 authenticated tool calls returned correct results")
+            await check("extract_pdf_text", {
+                "url": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+                "max_pages": 1},
+                lambda text: "Dummy PDF file" in json.loads(text)["pages"][0]["text"])
+            await check("get_github_file", {"owner": "kushalkachari993-dev",
+                                            "repo": "mcp-server-fly", "path": "README.md", "max_chars": 1000},
+                        lambda text: "MCPSever" in json.loads(text)["content"])
+            await check("get_github_issue", {"owner": "pallets", "repo": "flask", "number": 6165},
+                        lambda text: json.loads(text)["number"] == 6165)
+            await check("get_github_pull_request", {"owner": "pallets", "repo": "flask",
+                                                    "number": 6162, "max_files": 2},
+                        lambda text: json.loads(text)["number"] == 6162
+                        and bool(json.loads(text)["files"]))
+            await check("list_github_releases", {"owner": "pallets", "repo": "flask", "limit": 1},
+                        lambda text: bool(json.loads(text)["releases"]))
+            await check("inspect_openapi", {
+                "url": "https://raw.githubusercontent.com/OAI/OpenAPI-Specification/main/_archive_/schemas/v3.0/pass/petstore.yaml",
+                "max_operations": 5},
+                lambda text: json.loads(text)["title"] == "Swagger Petstore"
+                and any(item["path"] == "/pets" for item in json.loads(text)["operations"]))
+            print("PASS: 27 authenticated tool calls returned correct results")
 
 
 def main() -> None:
@@ -148,7 +170,7 @@ def main() -> None:
             "Missing API key. Set MCP_API_KEY or pass --api-key your_key."
         )
 
-    asyncio.run(asyncio.wait_for(run_test(args.base_url, args.api_key), timeout=180))
+    asyncio.run(asyncio.wait_for(run_test(args.base_url, args.api_key), timeout=240))
 
 
 if __name__ == "__main__":

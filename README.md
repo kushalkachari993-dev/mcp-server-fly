@@ -46,6 +46,12 @@ Available tools
 - `summarize_numbers(values)` - calculate descriptive statistics for a numeric array.
 - `diff_text(before, after, context_lines, max_chars)` - compare text using a unified diff.
 - `convert_units(value, from_unit, to_unit)` - convert compatible physical units with Pint.
+- `extract_pdf_text(url, start_page, max_pages, max_chars)` - read text from selected pages of a public PDF.
+- `get_github_file(owner, repo, path, ref, max_chars)` - read a public repository file at a ref.
+- `get_github_issue(owner, repo, number)` - read a public issue and status.
+- `get_github_pull_request(owner, repo, number, max_files)` - read a public PR and changed-file summary.
+- `list_github_releases(owner, repo, limit)` - list published releases of a public repository.
+- `inspect_openapi(url, max_operations)` - list endpoints and declared auth in a public OpenAPI description.
 
 Data utility examples
 ---------------------
@@ -141,6 +147,40 @@ case-sensitive and accept `*`, `/`, and integer powers from -12 to 12, with
 at most 100 characters. Incompatible or unknown units return an error. Currency
 conversion, custom definitions, and conversion contexts are not supported.
 
+Document and developer examples
+-------------------------------
+
+```text
+extract_pdf_text(url="https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", max_pages=1)
+get_github_file(owner="kushalkachari993-dev", repo="mcp-server-fly", path="README.md")
+get_github_issue(owner="pallets", repo="flask", number=6165)
+get_github_pull_request(owner="pallets", repo="flask", number=6162, max_files=5)
+list_github_releases(owner="pallets", repo="flask", limit=3)
+inspect_openapi(url="https://raw.githubusercontent.com/OAI/OpenAPI-Specification/main/_archive_/schemas/v3.0/pass/petstore.yaml")
+```
+
+PDF extraction accepts public PDF URLs up to 1 MB. It reads 1-10 pages per
+call, returns at most 50,000 text characters, and runs in an isolated worker
+with a 10-second time limit and memory/CPU limits on Linux. Encrypted PDFs and
+files over 1,000 pages are rejected. `scanned_possible` signals that selected
+pages yielded no text; this tool does not perform OCR. Only one PDF can be
+parsed at a time to protect the 256 MB Fly.io machine.
+
+GitHub tools read public repositories only and never accept a GitHub token.
+File content is limited to 1 MB of UTF-8 and a selectable 100-50,000-character
+response. Issues/PRs include at most 12,000 body characters. PRs list at most
+50 changed file paths without patches; releases return at most 20 items and
+4,000 characters of notes each. A `truncated` flag marks partial results.
+The unauthenticated GitHub API has a shared per-IP rate limit, so callers
+should use these tools sparingly and retry only after a rate limit resets.
+
+OpenAPI inspection accepts a public JSON or YAML OpenAPI 3.x URL. It lists
+title, version, servers, and up to 200 operations with methods, paths, tags,
+and declared security scheme names. It does not resolve external or local
+`$ref` targets, make API calls, or validate the entire specification. The
+download limit is 1 MB and parsed input is limited to 200,000 characters.
+These new URL-based tools reuse the public-only redirect-checked fetcher.
+
 Run the focused utility tests:
 
 ```powershell
@@ -158,7 +198,8 @@ The script reads `MCP_API_KEY` from the environment or the project's ignored
 script makes an authenticated MCP connection and fetches `https://example.com`.
 It also fetches the Django weblog RSS feed and the Python statistics documentation
 to verify feed and table extraction, then checks the numeric, diff, and unit
-tools. The live suite currently makes 21 authenticated tool calls.
+tools. The live suite also verifies PDF, public GitHub, and OpenAPI tools, for
+a total of 27 authenticated tool calls.
 
 Configuration
 -------------

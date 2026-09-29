@@ -21,6 +21,7 @@ dependencies = [
     "anyio>=4.13,<5",
     "feedparser>=6.0.12,<7",
     "pint>=0.25,<0.26",
+    "pypdf>=6,<7",
 ]
 
 [tool.uv]

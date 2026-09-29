@@ -20,11 +20,11 @@ class DataToolsTests(unittest.IsolatedAsyncioTestCase):
         content = result[0] if isinstance(result, tuple) else result
         return "\n".join(item.text for item in content if item.type == "text")
 
-    async def test_registry_exposes_all_39_tools(self):
+    async def test_registry_exposes_all_45_tools(self):
         server = FastMCP("registry-test")
         register_all_tools(server)
         names = {tool.name for tool in await server.list_tools()}
-        self.assertEqual(len(names), 39)
+        self.assertEqual(len(names), 45)
         self.assertTrue({
             "csv_to_json", "json_to_csv", "query_json", "compare_json",
             "timestamp_to_datetime", "datetime_to_timestamp",
@@ -32,6 +32,8 @@ class DataToolsTests(unittest.IsolatedAsyncioTestCase):
             "json_to_yaml", "cron_next_runs",
             "read_rss_feed", "extract_webpage_links", "extract_html_tables",
             "summarize_numbers", "diff_text", "convert_units",
+            "extract_pdf_text", "get_github_file", "get_github_issue",
+            "get_github_pull_request", "list_github_releases", "inspect_openapi",
         }.issubset(names))
 
     async def test_csv_quoted_cells_and_leading_zeros(self):

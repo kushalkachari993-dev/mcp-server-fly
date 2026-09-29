@@ -35,12 +35,14 @@ def _public_destination(url: str):
     return parts, hostname, port, str(address)
 
 
-def fetch_page(url: str, *, media_types=None):
+def fetch_page(url: str, *, media_types=None, allowed_host=None):
     allowed_types = _PAGE_TYPES if media_types is None else media_types
     deadline = time.monotonic() + 25
     url = url.strip()
     for redirect_number in range(_MAX_REDIRECTS + 1):
         parts, hostname, port, address = _public_destination(url)
+        if allowed_host is not None and (hostname != allowed_host or parts.scheme != "https"):
+            raise ValueError("Destination host is not allowed")
         authority = f"[{hostname}]" if ":" in hostname else hostname
         if parts.port is not None:
             authority += f":{port}"
