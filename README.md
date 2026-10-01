@@ -59,6 +59,10 @@ Available tools
 - `list_github_directory(owner, repo, path, ref, limit)` - browse one public repository directory.
 - `toml_to_json(value)` - parse TOML configuration into JSON.
 - `extract_json_ld(url, max_items, max_chars)` - read embedded structured data from public HTML.
+- `inspect_robots_txt(site_url, max_rules)` - summarize a site's robots.txt rules and Sitemap lines.
+- `read_sitemap(url, limit)` - list URLs and dates from an XML sitemap or index.
+- `inspect_page_metadata(url)` - read canonical, description, Open Graph, and Twitter metadata.
+- `get_pypi_package(name)` - summarize a public PyPI project's latest metadata.
 
 Data utility examples
 ---------------------
@@ -171,6 +175,10 @@ lookup_dns_records(domain="example.com", record_type="MX")
 list_github_directory(owner="kushalkachari993-dev", repo="mcp-server-fly", path="app/tools")
 toml_to_json(value='[server]\nport = 8000\n')
 extract_json_ld(url="https://example.com", max_items=5)
+inspect_robots_txt(site_url="https://example.com")
+read_sitemap(url="https://example.com/sitemap.xml", limit=50)
+inspect_page_metadata(url="https://example.com")
+get_pypi_package(name="sampleproject")
 ```
 
 PDF extraction accepts public PDF URLs up to 1 MB. It reads 1-10 pages per
@@ -222,6 +230,22 @@ dates/times to ISO strings. Non-finite numbers and oversized output are rejected
 JSON-LD extraction reads up to 20 embedded objects or arrays from a public HTML
 page, reports malformed scripts, and caps returned text at 50,000 characters.
 It does not run page JavaScript or retrieve external JSON-LD contexts.
+
+Robots inspection reads only the HTTPS site's root `/robots.txt`. It lists up
+to 200 allow/disallow rules and 20 Sitemap lines without deciding whether a
+given URL is crawlable. A 4xx response is reported as missing; 5xx is an error.
+Sitemap reading accepts UTF-8 XML `urlset` and `sitemapindex` documents, returns
+at most 500 URLs with optional `lastmod` values, and never fetches child
+sitemaps. DTDs, custom entity declarations, compressed sitemaps, and oversized
+XML are rejected.
+Both tools use the public-only transport and 1 MB download limit.
+
+Page metadata inspection returns title, description, canonical URL, robots meta,
+and bounded Open Graph/Twitter tags from HTML without executing scripts. PyPI
+lookup returns the latest version, Python requirement, up to 30 dependencies,
+license, and up to 10 project links. It does not return release history, and
+PyPI responses above the shared 1 MB download limit return an error. These
+tools require no additional API keys.
 
 Run the focused utility tests:
 

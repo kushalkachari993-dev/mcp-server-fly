@@ -109,6 +109,56 @@ def _extract_json_ld(body, content_type, url, max_items, max_chars):
     return result
 
 
+def _extract_metadata(body, content_type, url):
+    soup = _html_soup(body, content_type)
+    head = soup.head or soup
+    raw_title = head.title.get_text(" ", strip=True) if head.title else ""
+    title = raw_title[:1000]
+    description = ""
+    robots = ""
+    open_graph = {}
+    twitter = {}
+    truncated = len(raw_title) > 1000
+    meta_tags = head.find_all("meta")
+    for tag in meta_tags[:200]:
+        content = str(tag.get("content", "")).strip()
+        if not content:
+            continue
+        name = str(tag.get("name", "")).strip().lower()
+        prop = str(tag.get("property", "")).strip().lower()
+        if name == "description" and not description:
+            description = content[:1000]
+            truncated |= len(content) > 1000
+        elif name == "robots" and not robots:
+            robots = content[:500]
+            truncated |= len(content) > 500
+        target, key = (open_graph, prop) if prop.startswith("og:") else (twitter, name)
+        if key.startswith(("og:", "twitter:")):
+            if sum(map(len, target.values())) < 20:
+                target.setdefault(key, []).append(content[:1000])
+            else:
+                truncated = True
+            truncated |= len(content) > 1000
+    truncated |= len(meta_tags) > 200
+    canonical = ""
+    for link in head.find_all("link", href=True):
+        rel = link.get("rel", [])
+        if "canonical" not in [part.lower() for part in (rel if isinstance(rel, list) else [rel])]:
+            continue
+        candidate = urljoin(url, link["href"].strip())
+        try:
+            parts = urlsplit(candidate)
+            if parts.scheme in {"http", "https"} and parts.hostname and not parts.username and not parts.password:
+                canonical = candidate[:4096]
+                truncated |= len(candidate) > 4096
+        except ValueError:
+            pass
+        break
+    return {"url": url, "title": title, "description": description,
+            "canonical": canonical, "robots": robots,
+            "open_graph": open_graph, "twitter": twitter, "truncated": truncated}
+
+
 def _span(cell, name, maximum):
     raw = str(cell.get(name, "1"))
     if len(raw) > 4 or not raw.isdigit() or not 1 <= int(raw) <= maximum:
@@ -230,6 +280,20 @@ def register(mcp):
                 _extract_json_ld, body, content_type, final_url, max_items, max_chars
             )
             return json.dumps(result, indent=2, allow_nan=False)
+        except (ValueError, urllib3.exceptions.HTTPError, OSError, LookupError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
+    async def inspect_page_metadata(url: str) -> str:
+        """Read a public HTML page's title, description, canonical URL, robots
+        meta tag, Open Graph properties, and Twitter card tags. Repeated social
+        tags are returned as arrays. Does not execute JavaScript or fetch links.
+        Downloads are capped at 1 MB; metadata values and counts are bounded.
+        """
+        try:
+            body, content_type, final_url = await anyio.to_thread.run_sync(fetch_page, url)
+            result = await anyio.to_thread.run_sync(_extract_metadata, body, content_type, final_url)
+            return json.dumps(result, indent=2)
         except (ValueError, urllib3.exceptions.HTTPError, OSError, LookupError) as error:
             return f"Error: {error}"
 
