@@ -10,6 +10,7 @@ from app.tools.webpage.service import fetch_page
 _OWNER = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}\Z")
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}\Z")
 _JSON_TYPES = {"application/json", "application/vnd.github+json"}
+_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
 
 
 def _repo_path(owner, repo):
@@ -56,6 +57,28 @@ def read_file(owner, repo, path, ref, max_chars):
     return {"owner": owner, "repo": repo, "path": path, "ref": ref or "default",
             "sha": data.get("sha", ""), "content": content[:max_chars],
             "truncated": len(content) > max_chars}
+
+
+def list_directory(owner, repo, path, ref, limit):
+    root = _repo_path(owner, repo)
+    if (len(path) > 512 or "\\" in path or
+            (path and any(part in {"", ".", ".."} for part in path.split("/")))):
+        raise ValueError("Provide a repository-relative directory path of at most 512 characters")
+    if len(ref) > 200:
+        raise ValueError("ref must not exceed 200 characters")
+    suffix = "/" + "/".join(quote(part, safe="") for part in path.split("/")) if path else ""
+    rows = _request(f"{root}/contents{suffix}", {"ref": ref} if ref else None)
+    if not isinstance(rows, list):
+        raise ValueError("GitHub did not return a directory")
+    entries = [{"name": _text(row.get("name"), 255),
+                "path": _text(row.get("path"), 512),
+                "type": _text(row.get("type"), 30),
+                "size": row.get("size"),
+                "sha": _text(row.get("sha"), 40),
+                "url": _text(row.get("html_url"), 1000)}
+               for row in rows[:limit] if isinstance(row, dict)]
+    return {"owner": owner, "repo": repo, "path": path, "ref": ref or "default",
+            "entries": entries, "truncated": len(rows) > limit}
 
 
 def read_issue(owner, repo, number):
@@ -110,3 +133,37 @@ def list_releases(owner, repo, limit):
                           "prerelease": row.get("prerelease", False),
                           "body": _text(row.get("body"), 4000)} for row in rows[:limit]],
             "truncated": len(rows) > limit}
+
+
+def compare_refs(owner, repo, base, head, max_commits, max_files):
+    root = _repo_path(owner, repo)
+    for ref in (base, head):
+        if not _REF.fullmatch(ref) or ref.endswith("/") or ".." in ref or "//" in ref:
+            raise ValueError("base and head must be valid branch, tag, or commit references")
+    pair = f"{quote(base, safe='')}...{quote(head, safe='')}"
+    data = _request(f"{root}/compare/{pair}", {"per_page": max_commits + 1})
+    if not isinstance(data, dict) or not isinstance(data.get("commits"), list):
+        raise ValueError("GitHub did not return a commit comparison")
+    rows = data["commits"]
+    files = data.get("files", [])
+    if not isinstance(files, list):
+        raise ValueError("GitHub did not return changed files")
+    total_commits = data.get("total_commits", len(rows))
+    if not isinstance(total_commits, int):
+        total_commits = len(rows)
+    return {
+        "owner": owner, "repo": repo, "base": base, "head": head,
+        "status": data.get("status", ""), "ahead_by": data.get("ahead_by", 0),
+        "behind_by": data.get("behind_by", 0), "total_commits": total_commits,
+        "url": data.get("html_url", ""),
+        "commits": [{"sha": _text(row.get("sha"), 40),
+                     "message": _text((row.get("commit") or {}).get("message"), 500),
+                     "author": _text(((row.get("commit") or {}).get("author") or {}).get("name"), 100)}
+                    for row in rows[:max_commits] if isinstance(row, dict)],
+        "files": [{"path": _text(row.get("filename"), 500),
+                   "status": _text(row.get("status"), 30),
+                   "additions": row.get("additions", 0), "deletions": row.get("deletions", 0)}
+                  for row in files[:max_files] if isinstance(row, dict)],
+        "commits_truncated": total_commits > max_commits,
+        "files_truncated": len(files) > max_files or len(files) >= 300,
+    }

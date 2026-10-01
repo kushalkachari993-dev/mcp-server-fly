@@ -68,3 +68,38 @@ def inspect_spec(body, url, max_operations):
             "operations": operations, "truncated": truncated,
             "unresolved_path_refs": unresolved_paths,
             "unresolved_operation_refs": unresolved_operations}
+
+
+def compare_specs(before_body, before_url, after_body, after_url, max_changes):
+    before = inspect_spec(before_body, before_url, 500)
+    after = inspect_spec(after_body, after_url, 500)
+    if before["truncated"] or after["truncated"]:
+        raise ValueError("OpenAPI comparison supports at most 500 operations per spec")
+    for spec in (before, after):
+        if spec["unresolved_path_refs"] or spec["unresolved_operation_refs"]:
+            raise ValueError("OpenAPI comparison cannot resolve path or operation $refs")
+
+    def indexed(spec):
+        return {(item["path"], item["method"]): item for item in spec["operations"]}
+
+    old = indexed(before)
+    new = indexed(after)
+    changes = []
+    for path, method in sorted(old.keys() | new.keys()):
+        key = (path, method)
+        if key not in old:
+            changes.append({"change": "added", "path": path, "method": method,
+                            "security_schemes": new[key]["security_schemes"]})
+        elif key not in new:
+            changes.append({"change": "removed", "path": path, "method": method,
+                            "security_schemes": old[key]["security_schemes"]})
+        elif old[key]["security_schemes"] != new[key]["security_schemes"]:
+            changes.append({"change": "security_changed", "path": path, "method": method,
+                            "before": old[key]["security_schemes"],
+                            "after": new[key]["security_schemes"]})
+    return {"before_url": before_url, "after_url": after_url,
+            "before_version": before["version"], "after_version": after["version"],
+            "before_operations": len(old), "after_operations": len(new),
+            "total_changes": len(changes), "changes": changes[:max_changes],
+            "truncated": len(changes) > max_changes,
+            "scope": "Endpoints and declared security scheme names only; schemas are not compared"}

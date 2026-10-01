@@ -1,35 +1,13 @@
-import ipaddress
 import json
-import socket
-from urllib.parse import urlparse
 
-import requests
+import urllib3
+
+from app.tools.webpage.service import request_public
 
 
 _ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 _MAX_BODY_CHARS = 20000
 _MAX_RESPONSE_CHARS = 8000
-
-
-def _is_public_host(hostname: str) -> bool:
-    try:
-        addresses = socket.getaddrinfo(hostname, None)
-    except socket.gaierror:
-        raise ValueError("Could not resolve hostname")
-
-    for address in addresses:
-        ip = ipaddress.ip_address(address[4][0])
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            return False
-
-    return True
 
 
 def _parse_json_object(value: str, field_name: str) -> dict:
@@ -60,44 +38,41 @@ def register(mcp):
 
         url = url.strip()
         method = method.strip().upper()
-        parsed = urlparse(url)
-
-        if parsed.scheme not in {"http", "https"}:
-            return "Error: URL must start with http:// or https://"
-
-        if not parsed.hostname:
-            return "Error: URL must include a hostname"
-
         if method not in _ALLOWED_METHODS:
             return f"Error: Method must be one of {', '.join(sorted(_ALLOWED_METHODS))}"
 
         if len(body) > _MAX_BODY_CHARS:
             return f"Error: Body is too large. Maximum is {_MAX_BODY_CHARS} characters"
 
+        if len(headers_json) > 8000:
+            return "Error: headers_json must not exceed 8000 characters"
+
         if timeout_seconds < 1 or timeout_seconds > 30:
             return "Error: timeout_seconds must be between 1 and 30"
 
         try:
-            if not _is_public_host(parsed.hostname):
-                return "Error: Private, local, reserved, or link-local hosts are blocked"
-
             headers = _parse_json_object(headers_json, "headers_json")
+            if len(headers) > 30:
+                raise ValueError("headers_json must contain at most 30 headers")
+            if any(not isinstance(key, str) or not isinstance(value, str) for key, value in headers.items()):
+                raise ValueError("headers_json keys and values must be strings")
+            if any(not key or len(key) > 100 or len(value) > 1000 or
+                   "\r" in key or "\n" in key or "\r" in value or "\n" in value
+                   for key, value in headers.items()):
+                raise ValueError("headers_json contains an invalid or oversized header")
+            if any(key.lower() in {"host", "content-length", "transfer-encoding"} for key in headers):
+                raise ValueError("Host, Content-Length, and Transfer-Encoding headers are managed by the server")
             headers.setdefault("User-Agent", "MCPSever/0.1")
-
-            response = requests.request(
-                method=method,
-                url=url,
-                headers=headers,
-                data=body if body else None,
-                timeout=timeout_seconds,
-                allow_redirects=True,
+            status, response_headers, response_body, final_url = request_public(
+                url, method=method, headers=headers, body=body.encode("utf-8") if body else None,
+                timeout_seconds=timeout_seconds,
             )
-
-            response_text = response.text[:_MAX_RESPONSE_CHARS]
-            truncated = len(response.text) > _MAX_RESPONSE_CHARS
-            response_headers = {
+            decoded = response_body.decode("utf-8", errors="replace")
+            response_text = decoded[:_MAX_RESPONSE_CHARS]
+            truncated = len(decoded) > _MAX_RESPONSE_CHARS
+            selected_headers = {
                 key: value
-                for key, value in response.headers.items()
+                for key, value in response_headers.items()
                 if key.lower()
                 in {
                     "content-type",
@@ -109,17 +84,17 @@ def register(mcp):
             }
 
             return (
-                f"Status: {response.status_code}\n"
-                f"Final URL: {response.url}\n"
-                f"Headers: {json.dumps(response_headers, indent=2)}\n"
+                f"Status: {status}\n"
+                f"Final URL: {final_url}\n"
+                f"Headers: {json.dumps(selected_headers, indent=2)}\n"
                 f"Truncated: {truncated}\n\n"
                 f"{response_text}"
             )
         except json.JSONDecodeError as e:
             return f"Error: headers_json is invalid JSON - {e}"
-        except requests.exceptions.Timeout:
+        except urllib3.exceptions.TimeoutError:
             return "Error: Request timed out"
-        except requests.exceptions.RequestException as e:
+        except urllib3.exceptions.HTTPError as e:
             return f"Error: Network issue - {e}"
         except Exception as e:
             return f"Error: {e}"

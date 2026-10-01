@@ -148,6 +148,26 @@ class DocumentToolsTests(unittest.IsolatedAsyncioTestCase):
                                            allowed_host="api.github.com")
         self.assertEqual(pool.urlopen.call_count, 1)
 
+    async def test_github_compare_refs_summarizes_and_bounds_results(self):
+        payload = {"status": "ahead", "ahead_by": 2, "behind_by": 0, "total_commits": 2,
+                   "commits": [{"sha": "abc", "commit": {"message": "First", "author": {"name": "Ada"}}},
+                               {"sha": "def", "commit": {"message": "Second"}}],
+                   "files": [{"filename": "one.py", "status": "modified", "additions": 2, "deletions": 1},
+                             {"filename": "two.py", "status": "added", "additions": 3, "deletions": 0}]}
+        with patch.object(github_service, "_request", return_value=payload) as request:
+            result = json.loads(await self.call("compare_github_refs", owner="a", repo="b", base="v1",
+                                                head="main", max_commits=1, max_files=1))
+        self.assertEqual(result["files"][0]["path"], "one.py")
+        self.assertEqual(result["commits"][0]["message"], "First")
+        self.assertTrue(result["commits_truncated"])
+        self.assertTrue(result["files_truncated"])
+        self.assertEqual(request.call_args.args[0], "repos/a/b/compare/v1...main")
+        for args in ({"base": "../secret", "head": "main"},
+                     {"base": "v1", "head": "bad..ref"},
+                     {"base": "v1", "head": "main", "max_files": 51}):
+            with self.subTest(args=args):
+                self.assertTrue((await self.call("compare_github_refs", owner="a", repo="b", **args)).startswith("Error:"))
+
     async def test_openapi_json_security_override_and_refs(self):
         spec = {"openapi": "3.1.0", "info": {"title": "Demo", "version": "1.0"},
                 "servers": [{"url": "https://example.com"}], "security": [{"apiKey": []}],
@@ -186,6 +206,35 @@ paths:
     async def test_openapi_blocks_private_fetches(self):
         with patch.object(openapi_tools, "fetch_page", side_effect=ValueError("non-public address blocked")):
             self.assertIn("blocked", await self.call("inspect_openapi", url="http://localhost/openapi.yaml"))
+
+    async def test_openapi_compare_endpoints_and_auth(self):
+        before = {"openapi": "3.1.0", "info": {"title": "Demo", "version": "1"},
+                  "security": [{"apiKey": []}],
+                  "paths": {"/old": {"get": {}}, "/shared": {"post": {}}}}
+        after = {"openapi": "3.1.0", "info": {"title": "Demo", "version": "2"},
+                 "paths": {"/new": {"get": {}}, "/shared": {"post": {"security": []}}}}
+        responses = [(json.dumps(before).encode(), "application/json", "https://example.com/old.json"),
+                     (json.dumps(after).encode(), "application/json", "https://example.com/new.json")]
+        with patch.object(openapi_tools, "fetch_page", side_effect=responses):
+            result = json.loads(await self.call("compare_openapi_specs", before_url="https://example.com/old.json",
+                                                after_url="https://example.com/new.json", max_changes=2))
+        self.assertEqual(result["total_changes"], 3)
+        self.assertTrue(result["truncated"])
+        self.assertEqual({item["change"] for item in result["changes"]}, {"added", "removed"})
+        full = openapi_service.compare_specs(json.dumps(before).encode(), "old", json.dumps(after).encode(), "new", 10)
+        self.assertIn({"change": "security_changed", "path": "/shared", "method": "POST",
+                       "before": ["apiKey"], "after": []}, full["changes"])
+
+    async def test_openapi_compare_rejects_unresolved_refs(self):
+        spec = {"openapi": "3.0.0", "info": {}, "paths": {"/remote": {"$ref": "other.yaml"}}}
+        with patch.object(openapi_tools, "fetch_page", return_value=(json.dumps(spec).encode(), "application/json", "https://example.com/spec")):
+            self.assertIn("$refs", await self.call("compare_openapi_specs", before_url="https://example.com/a",
+                                                    after_url="https://example.com/b"))
+        large = {"openapi": "3.0.0", "info": {},
+                 "paths": {f"/item/{number}": {"get": {}} for number in range(501)}}
+        encoded = json.dumps(large).encode()
+        with self.assertRaisesRegex(ValueError, "at most 500"):
+            openapi_service.compare_specs(encoded, "old", encoded, "new", 100)
 
 
 if __name__ == "__main__":

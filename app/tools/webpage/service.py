@@ -35,10 +35,11 @@ def _public_destination(url: str):
     return parts, hostname, port, str(address)
 
 
-def fetch_page(url: str, *, media_types=None, allowed_host=None):
-    allowed_types = _PAGE_TYPES if media_types is None else media_types
-    deadline = time.monotonic() + 25
+def request_public(url: str, *, method="GET", headers=None, body=None, timeout_seconds=25,
+                   allowed_host=None):
+    deadline = time.monotonic() + timeout_seconds
     url = url.strip()
+    headers = dict(headers or {})
     for redirect_number in range(_MAX_REDIRECTS + 1):
         parts, hostname, port, address = _public_destination(url)
         if allowed_host is not None and (hostname != allowed_host or parts.scheme != "https"):
@@ -63,11 +64,11 @@ def fetch_page(url: str, *, media_types=None, allowed_host=None):
             if remaining <= 0:
                 raise ValueError("Webpage request timed out")
             response = pool.urlopen(
-                "GET", target,
-                headers={
+                method, target,
+                body=body,
+                headers={**headers,
                     "Host": authority,
-                    "User-Agent": "MCPSever/0.1",
-                    "Accept": ",".join(sorted(allowed_types)),
+                    "User-Agent": headers.get("User-Agent", "MCPSever/0.1"),
                     "Accept-Encoding": "gzip, deflate",
                 },
                 redirect=False,
@@ -81,17 +82,19 @@ def fetch_page(url: str, *, media_types=None, allowed_host=None):
                     raise ValueError("Redirect response did not include a destination")
                 if redirect_number == _MAX_REDIRECTS:
                     raise ValueError("Too many redirects")
-                url = urljoin(url, location)
+                next_url = urljoin(url, location)
+                next_parts = urlsplit(next_url)
+                if next_parts.hostname != parts.hostname or next_parts.scheme != parts.scheme:
+                    if body is not None:
+                        raise ValueError("Cross-origin redirects with a request body are blocked")
+                    headers = {key: value for key, value in headers.items()
+                               if key.lower() not in {"authorization", "cookie", "proxy-authorization"}}
+                if response.status == 303 or (response.status in {301, 302} and method == "POST"):
+                    method, body = "GET", None
+                    headers = {key: value for key, value in headers.items()
+                               if key.lower() not in {"content-type", "content-length"}}
+                url = next_url
                 continue
-            if not 200 <= response.status < 300:
-                raise ValueError(f"Webpage returned HTTP {response.status}")
-            content_type = response.headers.get("Content-Type", "").lower()
-            media_type = content_type.split(";", 1)[0].strip()
-            if media_type not in allowed_types:
-                if media_types is None:
-                    raise ValueError("Only HTML and plain-text webpages are supported")
-                raise ValueError("Response has an unsupported content type")
-
             body = bytearray()
             while True:
                 if time.monotonic() > deadline:
@@ -102,9 +105,26 @@ def fetch_page(url: str, *, media_types=None, allowed_host=None):
                 body.extend(chunk)
                 if len(body) > _MAX_BYTES:
                     raise ValueError("Webpage exceeds the 1 MB download limit")
-            return bytes(body), content_type, url
+            return response.status, dict(response.headers), bytes(body), url
         finally:
             if response is not None:
                 response.close()
             pool.close()
     raise ValueError("Too many redirects")
+
+
+def fetch_page(url: str, *, media_types=None, allowed_host=None):
+    allowed_types = _PAGE_TYPES if media_types is None else media_types
+    status, headers, body, final_url = request_public(
+        url, headers={"Accept": ",".join(sorted(allowed_types))}, allowed_host=allowed_host
+    )
+    if not 200 <= status < 300:
+        raise ValueError(f"Webpage returned HTTP {status}")
+    content_type = next((value.lower() for key, value in headers.items()
+                         if key.lower() == "content-type"), "")
+    media_type = content_type.split(";", 1)[0].strip()
+    if media_type not in allowed_types:
+        if media_types is None:
+            raise ValueError("Only HTML and plain-text webpages are supported")
+        raise ValueError("Response has an unsupported content type")
+    return body, content_type, final_url

@@ -52,6 +52,13 @@ Available tools
 - `get_github_pull_request(owner, repo, number, max_files)` - read a public PR and changed-file summary.
 - `list_github_releases(owner, repo, limit)` - list published releases of a public repository.
 - `inspect_openapi(url, max_operations)` - list endpoints and declared auth in a public OpenAPI description.
+- `compare_github_refs(owner, repo, base, head, max_commits, max_files)` - compare public commits and changed files.
+- `compare_openapi_specs(before_url, after_url, max_changes)` - compare endpoints and declared auth schemes.
+- `inspect_tls_certificate(domain)` - inspect a public HTTPS certificate's validity and names.
+- `lookup_dns_records(domain, record_type, limit)` - query public A, AAAA, MX, or TXT records.
+- `list_github_directory(owner, repo, path, ref, limit)` - browse one public repository directory.
+- `toml_to_json(value)` - parse TOML configuration into JSON.
+- `extract_json_ld(url, max_items, max_chars)` - read embedded structured data from public HTML.
 
 Data utility examples
 ---------------------
@@ -157,6 +164,13 @@ get_github_issue(owner="pallets", repo="flask", number=6165)
 get_github_pull_request(owner="pallets", repo="flask", number=6162, max_files=5)
 list_github_releases(owner="pallets", repo="flask", limit=3)
 inspect_openapi(url="https://raw.githubusercontent.com/OAI/OpenAPI-Specification/main/_archive_/schemas/v3.0/pass/petstore.yaml")
+compare_github_refs(owner="kushalkachari993-dev", repo="mcp-server-fly", base="v1", head="master")
+compare_openapi_specs(before_url="https://example.com/old.json", after_url="https://example.com/new.json")
+inspect_tls_certificate(domain="example.com")
+lookup_dns_records(domain="example.com", record_type="MX")
+list_github_directory(owner="kushalkachari993-dev", repo="mcp-server-fly", path="app/tools")
+toml_to_json(value='[server]\nport = 8000\n')
+extract_json_ld(url="https://example.com", max_items=5)
 ```
 
 PDF extraction accepts public PDF URLs up to 1 MB. It reads 1-10 pages per
@@ -181,13 +195,41 @@ and declared security scheme names. It does not resolve external or local
 download limit is 1 MB and parsed input is limited to 200,000 characters.
 These new URL-based tools reuse the public-only redirect-checked fetcher.
 
+GitHub comparisons return up to 50 commits and 50 changed files, with separate
+truncation flags; they do not return patches. OpenAPI comparison handles at most
+500 operations in each spec and reports endpoint additions/removals and changes
+to declared security scheme names. It does not compare schemas or OAuth scopes
+and rejects path/operation `$ref` entries it cannot resolve.
+
+TLS inspection verifies the certificate and hostname on port 443, reporting
+expiry and up to 20 DNS names. Invalid certificates return an error. DNS lookup
+uses Cloudflare DNS over HTTPS, so queried domains are sent to Cloudflare;
+local/private DNS is not queried. It returns up to 50 matching records, including
+CNAMEs in a chain. TLS inspection blocks non-public destinations; DNS lookup
+validates domain syntax and never queries the machine's local DNS records.
+
+`http_request` and `fetch_url` now use the same public-only transport as the
+webpage tools. Each redirect is validated and connections are pinned to the
+validated IP, preventing DNS rebinding between validation and connection.
+Requests are limited to ports 80/443, three redirects, and 1 MB responses;
+credentials are removed when a redirect changes the host or scheme.
+
+Directory browsing lists one public GitHub directory at a time, including
+names, paths, types, sizes, and SHAs. It returns at most 100 entries and marks
+truncated results; it does not recurse. The GitHub response must fit the shared
+1 MB fetch limit. TOML parsing accepts up to 200,000 characters and converts
+dates/times to ISO strings. Non-finite numbers and oversized output are rejected.
+JSON-LD extraction reads up to 20 embedded objects or arrays from a public HTML
+page, reports malformed scripts, and caps returned text at 50,000 characters.
+It does not run page JavaScript or retrieve external JSON-LD contexts.
+
 Run the focused utility tests:
 
 ```powershell
 uv run python -m unittest discover -s tests -v
 ```
 
-After deploying, test the live MCP connection and the new tools:
+After deploying, test the live MCP connection and previously deployed tools:
 
 ```powershell
 uv run python scripts/test_deployed_mcp.py

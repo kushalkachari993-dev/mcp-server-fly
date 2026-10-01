@@ -23,6 +23,21 @@ def register(mcp):
             return f"Error: {error}"
 
     @mcp.tool()
+    async def list_github_directory(owner: str, repo: str, path: str = "", ref: str = "",
+                                    limit: int = 100) -> str:
+        """List up to 100 entries in a public GitHub repository directory.
+        An empty path lists the root. Returns names, paths, types, sizes, SHAs,
+        URLs, and a truncation flag. Does not recurse or access private repos.
+        """
+        try:
+            if not 1 <= limit <= 100:
+                raise ValueError("limit must be between 1 and 100")
+            result = await anyio.to_thread.run_sync(service.list_directory, owner, repo, path, ref, limit)
+            return json.dumps(result, indent=2)
+        except (ValueError, urllib3.exceptions.HTTPError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
     async def get_github_issue(owner: str, repo: str, number: int) -> str:
         """Read a public GitHub issue, including status, author, labels, and body.
         Body is limited to 12000 characters. Pull requests use a separate tool.
@@ -59,6 +74,23 @@ def register(mcp):
             if not 1 <= limit <= 20:
                 raise ValueError("limit must be between 1 and 20")
             result = await anyio.to_thread.run_sync(service.list_releases, owner, repo, limit)
+            return json.dumps(result, indent=2)
+        except (ValueError, urllib3.exceptions.HTTPError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
+    async def compare_github_refs(owner: str, repo: str, base: str, head: str,
+                                  max_commits: int = 20, max_files: int = 30) -> str:
+        """Compare two refs in a public GitHub repository. Returns ahead/behind counts,
+        up to 50 commit summaries, and up to 50 changed file paths. No patches or
+        private repository access; results indicate when lists are truncated.
+        """
+        try:
+            if not 1 <= max_commits <= 50 or not 1 <= max_files <= 50:
+                raise ValueError("max_commits and max_files must be between 1 and 50")
+            result = await anyio.to_thread.run_sync(
+                service.compare_refs, owner, repo, base, head, max_commits, max_files
+            )
             return json.dumps(result, indent=2)
         except (ValueError, urllib3.exceptions.HTTPError, OSError) as error:
             return f"Error: {error}"

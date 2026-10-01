@@ -6,7 +6,7 @@ import urllib3
 
 from app.tools.webpage.service import fetch_page
 
-from .service import _SPEC_TYPES, inspect_spec
+from .service import _SPEC_TYPES, compare_specs, inspect_spec
 
 
 def register(mcp):
@@ -23,6 +23,29 @@ def register(mcp):
                 raise ValueError("max_operations must be between 1 and 200")
             body, _, final_url = await anyio.to_thread.run_sync(partial(fetch_page, url, media_types=_SPEC_TYPES))
             result = await anyio.to_thread.run_sync(inspect_spec, body, final_url, max_operations)
+            return json.dumps(result, indent=2)
+        except (ValueError, urllib3.exceptions.HTTPError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
+    async def compare_openapi_specs(before_url: str, after_url: str, max_changes: int = 100) -> str:
+        """Compare public OpenAPI 3.x JSON/YAML specs for added/removed endpoints and
+        changed declared security scheme names. Does not compare schemas, scopes,
+        or breaking changes; path/operation $refs and specs over 500 operations
+        are rejected. Each download is capped at 1 MB.
+        """
+        try:
+            if not 1 <= max_changes <= 100:
+                raise ValueError("max_changes must be between 1 and 100")
+            before_body, _, before_final = await anyio.to_thread.run_sync(
+                partial(fetch_page, before_url, media_types=_SPEC_TYPES)
+            )
+            after_body, _, after_final = await anyio.to_thread.run_sync(
+                partial(fetch_page, after_url, media_types=_SPEC_TYPES)
+            )
+            result = await anyio.to_thread.run_sync(
+                compare_specs, before_body, before_final, after_body, after_final, max_changes
+            )
             return json.dumps(result, indent=2)
         except (ValueError, urllib3.exceptions.HTTPError, OSError) as error:
             return f"Error: {error}"

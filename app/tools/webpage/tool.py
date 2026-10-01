@@ -6,6 +6,8 @@ import anyio
 import urllib3
 from bs4 import BeautifulSoup
 
+from app.tools.json_utils.tool import _load_bounded_json
+
 from .service import fetch_page
 
 
@@ -70,6 +72,41 @@ def _extract_links(body, content_type, url, same_domain_only, limit):
             label = image["alt"] if image else ""
         links.append({"url": destination, "text": label[:1000]})
     return {"url": url, "links": links, "truncated": truncated}
+
+
+def _extract_json_ld(body, content_type, url, max_items, max_chars):
+    soup = _html_soup(body, content_type)
+    scripts = [script for script in soup.find_all("script")
+               if str(script.get("type", "")).split(";", 1)[0].strip().lower() == "application/ld+json"]
+    documents = []
+    invalid_scripts = 0
+    truncated = len(scripts) > 100
+    for script in scripts[:100]:
+        raw = str(script.string or script.get_text()).strip()
+        if len(raw) > 200000:
+            truncated = True
+            continue
+        try:
+            value = _load_bounded_json(raw)
+            if not isinstance(value, (dict, list)):
+                raise ValueError("JSON-LD must be an object or array")
+        except (ValueError, RecursionError):
+            invalid_scripts += 1
+            continue
+        if len(documents) >= max_items:
+            truncated = True
+            continue
+        candidate = {"url": url, "documents": documents + [value],
+                     "invalid_scripts": 100, "truncated": True}
+        if len(json.dumps(candidate, indent=2, allow_nan=False)) > max_chars:
+            truncated = True
+            continue
+        documents.append(value)
+    result = {"url": url, "documents": documents,
+              "invalid_scripts": invalid_scripts, "truncated": truncated}
+    if len(json.dumps(result, indent=2, allow_nan=False)) > max_chars:
+        raise ValueError("JSON-LD response exceeds max_chars")
+    return result
 
 
 def _span(cell, name, maximum):
@@ -175,6 +212,24 @@ def register(mcp):
             body, content_type, final_url = await anyio.to_thread.run_sync(fetch_page, url)
             result = await anyio.to_thread.run_sync(_extract_links, body, content_type, final_url, same_domain_only, limit)
             return json.dumps(result, indent=2)
+        except (ValueError, urllib3.exceptions.HTTPError, OSError, LookupError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
+    async def extract_json_ld(url: str, max_items: int = 10, max_chars: int = 20000) -> str:
+        """Extract embedded application/ld+json objects from a public HTML page.
+        Returns up to 20 documents, invalid-script count, and truncation flag.
+        Does not execute JavaScript or fetch external JSON-LD contexts.
+        Output is limited to 5000-50000 characters.
+        """
+        try:
+            if not 1 <= max_items <= 20 or not 5000 <= max_chars <= 50000:
+                raise ValueError("max_items must be 1-20 and max_chars must be 5000-50000")
+            body, content_type, final_url = await anyio.to_thread.run_sync(fetch_page, url)
+            result = await anyio.to_thread.run_sync(
+                _extract_json_ld, body, content_type, final_url, max_items, max_chars
+            )
+            return json.dumps(result, indent=2, allow_nan=False)
         except (ValueError, urllib3.exceptions.HTTPError, OSError, LookupError) as error:
             return f"Error: {error}"
 
