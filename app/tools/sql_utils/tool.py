@@ -1,5 +1,9 @@
 import re
 
+import anyio
+
+from . import service
+
 
 _KEYWORDS = [
     "SELECT",
@@ -40,6 +44,20 @@ def _uppercase_keywords(sql: str) -> str:
 
 
 def register(mcp):
+
+    @mcp.tool()
+    async def analyze_sql(sql: str, dialect: str = "postgres") -> str:
+        """Analyze SQL with SQLGlot without executing it. Returns statement types,
+        syntactic table/column references (including CTE names), and wildcard flags.
+        Supports postgres, mysql, sqlite, bigquery, snowflake, tsql, duckdb, redshift,
+        and trino. No schema validation or safety guarantee. Limits: 50000 input
+        characters, 10 statements, 100 references of each kind per statement,
+        100000 output characters, and one isolated worker with a 5-second timeout.
+        """
+        try:
+            return await anyio.to_thread.run_sync(service.analyze, sql, dialect)
+        except (ValueError, RecursionError, OSError) as error:
+            return f"Error: {error}"
 
     @mcp.tool()
     def format_sql(sql: str) -> str:

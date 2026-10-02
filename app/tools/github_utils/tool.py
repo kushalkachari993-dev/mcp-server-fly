@@ -92,6 +92,23 @@ def register(mcp):
             return f"Error: {error}"
 
     @mcp.tool()
+    async def list_github_workflow_jobs(owner: str, repo: str, run_id: int,
+                                        limit: int = 10, max_steps: int = 30) -> str:
+        """Read job and step statuses for a public GitHub Actions run's latest execution.
+        Returns up to 20 jobs and 50 steps per job, including failure conclusions,
+        dates, run links, and truncation flags. One public API request, no logs,
+        tokens, reruns, or cancellation. Download: 1 MB; output: 100000 characters.
+        """
+        try:
+            result = await anyio.to_thread.run_sync(service.list_workflow_jobs, owner, repo, run_id, limit, max_steps)
+            output = json.dumps(result, indent=2)
+            if len(output) > 100000:
+                raise ValueError("Job output exceeds 100000 characters; reduce limit or max_steps")
+            return output
+        except (ValueError, RecursionError, urllib3.exceptions.HTTPError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
     async def compare_github_refs(owner: str, repo: str, base: str, head: str,
                                   max_commits: int = 20, max_files: int = 30) -> str:
         """Compare two refs in a public GitHub repository. Returns ahead/behind counts,

@@ -23,6 +23,9 @@ dependencies = [
     "pint>=0.25,<0.26",
     "pypdf>=6,<7",
     "jmespath>=1,<2",
+    "packaging>=26,<27",
+    "semver>=3,<4",
+    "sqlglot>=30,<31",
 ]
 
 [tool.uv]

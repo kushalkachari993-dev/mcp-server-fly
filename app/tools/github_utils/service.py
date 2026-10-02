@@ -173,6 +173,55 @@ def list_workflow_runs(owner, repo, branch, limit):
             "total_count": total, "runs": runs, "truncated": truncated}
 
 
+def list_workflow_jobs(owner, repo, run_id, limit, max_steps):
+    root = _repo_path(owner, repo)
+    if type(run_id) is not int or not 1 <= run_id <= 2**63 - 1:
+        raise ValueError("run_id must be a positive 64-bit integer")
+    if not 1 <= limit <= 20 or not 1 <= max_steps <= 50:
+        raise ValueError("limit must be 1-20 and max_steps must be 1-50")
+    data = _request(f"{root}/actions/runs/{run_id}/jobs", {"filter": "latest", "per_page": limit + 1})
+    if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+        raise ValueError("GitHub did not return workflow jobs")
+    rows, total = data["jobs"], data.get("total_count")
+    if type(total) is not int or total < len(rows):
+        raise ValueError("GitHub returned an invalid job count")
+    truncated = total > limit or len(rows) > limit
+
+    def text(value, maximum):
+        nonlocal truncated
+        if isinstance(value, str):
+            truncated |= len(value) > maximum
+        return _text(value, maximum)
+
+    jobs = []
+    for row in rows[:limit]:
+        if not isinstance(row, dict) or type(row.get("id")) is not int or row["id"] < 1:
+            raise ValueError("GitHub returned invalid job metadata")
+        steps = row.get("steps", [])
+        if not isinstance(steps, list) or any(
+            not isinstance(step, dict) or type(step.get("number")) is not int or step["number"] < 0
+            for step in steps
+        ):
+            raise ValueError("GitHub returned invalid step metadata")
+        truncated |= len(steps) > max_steps
+        jobs.append({
+            "id": row["id"], "name": text(row.get("name"), 200),
+            "status": text(row.get("status"), 50), "conclusion": text(row.get("conclusion"), 50) or None,
+            "started_at": text(row.get("started_at"), 50) or None,
+            "completed_at": text(row.get("completed_at"), 50) or None,
+            "url": text(row.get("html_url"), 1000), "step_count": len(steps),
+            "steps": [{"number": step["number"], "name": text(step.get("name"), 200),
+                       "status": text(step.get("status"), 50),
+                       "conclusion": text(step.get("conclusion"), 50) or None,
+                       "started_at": text(step.get("started_at"), 50) or None,
+                       "completed_at": text(step.get("completed_at"), 50) or None}
+                      for step in steps[:max_steps]],
+            "steps_truncated": len(steps) > max_steps,
+        })
+    return {"owner": owner, "repo": repo, "run_id": run_id, "filter": "latest",
+            "total_count": total, "jobs": jobs, "truncated": truncated}
+
+
 def compare_refs(owner, repo, base, head, max_commits, max_files):
     root = _repo_path(owner, repo)
     for ref in (base, head):

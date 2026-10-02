@@ -67,6 +67,10 @@ Available tools
 - `check_package_vulnerabilities(ecosystem, name, version, limit)` - look up known OSV advisories for one package version.
 - `list_github_workflow_runs(owner, repo, branch, limit)` - read recent public GitHub Actions run statuses.
 - `query_json_advanced(value, expression)` - filter, sort, and reshape JSON using JMESPath.
+- `list_github_workflow_jobs(owner, repo, run_id, limit, max_steps)` - read public workflow job and step statuses.
+- `inspect_dependency_manifest(content, format, limit)` - inspect declared npm or Python dependencies offline.
+- `analyze_sql(sql, dialect)` - report statement types and syntactic references without executing SQL.
+- `compare_versions(first, second, scheme)` - compare exact SemVer or Python PEP 440 versions.
 
 Data utility examples
 ---------------------
@@ -302,6 +306,77 @@ API and query documentation: [npm registry](https://github.com/npm/registry/blob
 [GitHub workflow runs](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository),
 and [JMESPath examples](https://jmespath.org/examples.html).
 
+Build diagnostics and dependency examples
+----------------------------------------
+
+```text
+list_github_workflow_jobs(owner="pallets", repo="flask", run_id=123456789, limit=5, max_steps=20)
+inspect_dependency_manifest(content='{"dependencies":{"demo":"^1.0.0"}}', format="package.json")
+inspect_dependency_manifest(content='[project]\ndependencies = ["requests>=2"]\n', format="pyproject.toml")
+analyze_sql(sql="SELECT u.id FROM users u JOIN orders o ON u.id = o.user_id", dialect="postgres")
+compare_versions(first="1.9.0", second="1.10.0", scheme="semver")
+compare_versions(first="1.0rc1", second="1.0", scheme="pep440")
+```
+
+Replace the example run ID with one returned by `list_github_workflow_runs`.
+Job listing fetches the latest execution's jobs in one public GitHub request,
+returning 1-20 jobs (default 10) and 1-50 steps per job (default 30), when present.
+Each job and step includes status, conclusion, and dates. Pending conclusions
+may be null. The result includes total job count, per-job step counts, and
+truncation flags. Logs, artifacts, reruns, cancellations, and private repositories
+are not accessed. The 1 MB public-only fetch limit and GitHub rate limits apply;
+output above 100,000 characters returns an error requesting smaller limits.
+
+Manifest inspection accepts supplied `package.json` or `pyproject.toml` text,
+not paths or URLs. npm sections include `dependencies`, `devDependencies`,
+`optionalDependencies`, and `peerDependencies`; declarations overridden by an
+optional dependency are marked. Python sections include `project.dependencies`,
+`project.optional-dependencies`, `build-system.requires`, and `dependency-groups`.
+Python requirements are parsed with `packaging`, preserving extras, specifiers,
+environment markers, and direct URLs. Markers are not evaluated and group includes
+are listed without expansion or cycle checking. Dynamic dependencies, tool-specific
+declarations (including Poetry), workspaces, and overrides receive scope warnings
+where present. This is not a full manifest validator or dependency resolver;
+declared constraints are not installed versions. No files/URLs are opened and no
+packages or scripts are installed or executed.
+
+Manifests allow 200,000 input characters, 10,000 nodes, 50 nesting levels, and
+1,000 dependency declarations. Requirement strings are capped at 1,000 characters.
+The tool returns at most 200 declarations (default 100) and 200 group includes,
+with total declaration count and truncation flag. Duplicate JSON keys and invalid
+dependency shapes are rejected. Output over 100,000 characters returns an error;
+lower `limit` for a smaller summary. Full requirement strings are never shortened.
+
+SQL analysis uses SQLGlot in an isolated worker. Supported dialect names are
+`postgres` (default), `mysql`, `sqlite`, `bigquery`, `snowflake`, `tsql`, `duckdb`,
+`redshift`, and `trino`. Supported statement families are SELECT/set operations,
+INSERT, UPDATE, DELETE, MERGE, CREATE, ALTER, DROP, and TRUNCATE. Parser fallback
+commands and other statement types return errors. Table references include
+aliases and CTE references as written; column references do not resolve aliases,
+wildcards, types, or database schemas. Successful parsing is not proof of database
+validity, read-only behavior, or safety. SQL is never executed.
+
+SQL limits are 50,000 input characters, 10 statements, 10,000 AST nodes, and 100
+nested levels. Each statement reports at most 100 distinct table references,
+column references, and CTE names, each capped at 500 characters with truncation
+flags. Combined output is capped at 100,000 characters. One SQL worker per server
+process enforces a five-second wall timeout and, on Linux, a 128 MB address-space
+cap and three-second CPU cap.
+
+Version comparison accepts two exact versions up to 200 characters and an explicit
+`semver` (default) or `pep440` scheme. The result compares the first version against
+the second: -1/older, 0/equal precedence, or 1/newer. SemVer requires major.minor.patch,
+rejects leading `v` and incomplete versions, and ignores build metadata in ordering.
+PEP 440 normalizes Python versions and handles epochs, pre/dev/post/local releases.
+Ranges are not supported; ordering says nothing about compatibility or upgrade safety.
+The batch adds SQLGlot and semver, and declares packaging as a direct dependency.
+No new API keys are needed.
+
+References: [GitHub workflow jobs](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run),
+[SQLGlot](https://github.com/tobymao/sqlglot),
+[Python project metadata](https://packaging.python.org/en/latest/specifications/pyproject-toml/),
+[SemVer](https://semver.org/), and [PEP 440 version handling](https://packaging.pypa.io/en/stable/version.html).
+
 Run the focused utility tests:
 
 ```powershell
@@ -320,7 +395,8 @@ script makes an authenticated MCP connection and fetches `https://example.com`.
 It also fetches the Django weblog RSS feed and the Python statistics documentation
 to verify feed and table extraction, then checks the numeric, diff, and unit
 tools. The live suite also verifies PDF, public GitHub, OpenAPI, npm metadata,
-OSV advisories, GitHub workflow runs, and JMESPath queries, for a total of 31
+OSV advisories, GitHub workflow runs/jobs, JMESPath queries, dependency manifests,
+SQL analysis, and version comparison, for a total of 35
 authenticated tool calls. The new checks require deployment of the latest code.
 
 Configuration

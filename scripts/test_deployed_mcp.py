@@ -52,6 +52,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "get_github_pull_request", "list_github_releases", "inspect_openapi",
                 "get_npm_package", "check_package_vulnerabilities",
                 "list_github_workflow_runs", "query_json_advanced",
+                "list_github_workflow_jobs", "inspect_dependency_manifest", "analyze_sql", "compare_versions",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -77,6 +78,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 if result.isError or text.startswith("Error:") or not verify(text):
                     raise RuntimeError(f"Tool test failed: {name}: {text}")
                 print(f"PASS {name}: {text[:500]}")
+                return text
 
             if calculate_result.isError or not _text_from_tool_result(calculate_result).endswith("= 28.0"):
                 raise RuntimeError("Calculator smoke test failed")
@@ -156,14 +158,26 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "ecosystem": "npm", "name": "lodash", "version": "4.17.20", "limit": 3},
                 lambda text: bool(json.loads(text)["vulnerabilities"])
                 and json.loads(text)["name"] == "lodash")
-            await check("list_github_workflow_runs", {"owner": "pallets", "repo": "flask", "limit": 2},
-                        lambda text: isinstance(json.loads(text)["runs"], list)
-                        and json.loads(text)["repo"] == "flask")
+            workflow_text = await check("list_github_workflow_runs", {"owner": "pallets", "repo": "flask", "limit": 2},
+                                        lambda text: bool(json.loads(text)["runs"])
+                                        and json.loads(text)["repo"] == "flask")
             await check("query_json_advanced", {
                 "value": '{"users":[{"name":"Ada","active":true},{"name":"Bob","active":false}]}',
                 "expression": "users[?active].name"},
                 lambda text: json.loads(text) == ["Ada"])
-            print("PASS: 31 authenticated tool calls returned correct results")
+            run_id = json.loads(workflow_text)["runs"][0]["id"]
+            await check("list_github_workflow_jobs", {
+                "owner": "pallets", "repo": "flask", "run_id": run_id, "limit": 2, "max_steps": 3},
+                lambda text: json.loads(text)["run_id"] == run_id and isinstance(json.loads(text)["jobs"], list))
+            await check("inspect_dependency_manifest", {
+                "content": '{"dependencies":{"demo":"^1.0.0"}}', "format": "package.json"},
+                lambda text: json.loads(text)["dependencies"][0]["requirement"] == "^1.0.0")
+            await check("analyze_sql", {"sql": "SELECT id FROM users", "dialect": "postgres"},
+                        lambda text: json.loads(text)["statements"][0]["tables"] == ["users"]
+                        and json.loads(text)["statements"][0]["columns"] == ["id"])
+            await check("compare_versions", {"first": "1.9.0", "second": "1.10.0", "scheme": "semver"},
+                        lambda text: json.loads(text)["comparison"] == -1)
+            print("PASS: 35 authenticated tool calls returned correct results")
 
 
 def main() -> None:
