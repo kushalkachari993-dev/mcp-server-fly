@@ -22,6 +22,7 @@ dependencies = [
     "feedparser>=6.0.12,<7",
     "pint>=0.25,<0.26",
     "pypdf>=6,<7",
+    "jmespath>=1,<2",
 ]
 
 [tool.uv]

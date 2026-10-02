@@ -79,6 +79,19 @@ def register(mcp):
             return f"Error: {error}"
 
     @mcp.tool()
+    async def list_github_workflow_runs(owner: str, repo: str, branch: str = "", limit: int = 10) -> str:
+        """List recent GitHub Actions runs for a public repository, optionally by branch.
+        Returns up to 20 runs with status, conclusion, commit, dates, and run URL.
+        No tokens, private repositories, logs, reruns, or cancellation. Uses one
+        API request and reports truncation; GitHub's unauthenticated rate limits apply.
+        """
+        try:
+            result = await anyio.to_thread.run_sync(service.list_workflow_runs, owner, repo, branch, limit)
+            return json.dumps(result, indent=2)
+        except (ValueError, RecursionError, urllib3.exceptions.HTTPError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
     async def compare_github_refs(owner: str, repo: str, base: str, head: str,
                                   max_commits: int = 20, max_files: int = 30) -> str:
         """Compare two refs in a public GitHub repository. Returns ahead/behind counts,

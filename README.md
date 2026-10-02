@@ -63,6 +63,10 @@ Available tools
 - `read_sitemap(url, limit)` - list URLs and dates from an XML sitemap or index.
 - `inspect_page_metadata(url)` - read canonical, description, Open Graph, and Twitter metadata.
 - `get_pypi_package(name)` - summarize a public PyPI project's latest metadata.
+- `get_npm_package(name)` - summarize a public npm package's latest-tag metadata.
+- `check_package_vulnerabilities(ecosystem, name, version, limit)` - look up known OSV advisories for one package version.
+- `list_github_workflow_runs(owner, repo, branch, limit)` - read recent public GitHub Actions run statuses.
+- `query_json_advanced(value, expression)` - filter, sort, and reshape JSON using JMESPath.
 
 Data utility examples
 ---------------------
@@ -247,6 +251,57 @@ license, and up to 10 project links. It does not return release history, and
 PyPI responses above the shared 1 MB download limit return an error. These
 tools require no additional API keys.
 
+Dependency and workflow examples
+--------------------------------
+
+```text
+get_npm_package(name="@types/node")
+check_package_vulnerabilities(ecosystem="npm", name="lodash", version="4.17.20", limit=5)
+list_github_workflow_runs(owner="pallets", repo="flask", limit=5)
+query_json_advanced(value='{"users":[{"name":"Ada","active":true}]}', expression="users[?active].name")
+```
+
+npm lookup fetches only the `latest` tag's version metadata, not the full release
+history. It accepts lowercase names, including `@scope/name`, and returns Node
+requirements, license, repository, deprecation text, and at most 30 dependencies
+and 30 peer dependencies. It never downloads packages or executes install scripts.
+Descriptions, links, and dependency requirements are bounded; `truncated` also
+marks shortened fields. It does not audit dependencies or resolve version ranges.
+
+Vulnerability lookup sends the supplied ecosystem, package name, and exact version
+to OSV. Supported ecosystem names are case-sensitive: `PyPI`, `npm`, `Go`, `Maven`,
+`crates.io`, `NuGet`, `RubyGems`, and `Packagist`. It returns 1-20 advisory summaries
+when available (default limit 10), including aliases, raw severity scores/vectors,
+withdrawal dates when present, and advisory links. An empty result is not proof of
+safety. It does not scan dependencies, inspect code, or suggest a guaranteed-safe
+upgrade. Only the first API page is queried; `truncated` marks additional pages,
+omitted advisories, or shortened fields. Responses exceeding 1 MB return an error,
+not an empty vulnerability list.
+
+Workflow run listing makes one public GitHub API request and returns up to 20
+recent runs (default 10), optionally filtered by exact branch name. Each summary
+includes status, conclusion, branch, commit SHA, dates, and run URL. A pending
+run can have a null conclusion. The tool does not fetch logs, rerun jobs, cancel
+workflows, or access private repositories. API errors, including rate limits,
+are returned as errors rather than empty results. All three API tools use the
+shared public-only, HTTPS host-pinned transport and 1 MB response limit. No new
+API keys are required.
+
+Advanced JSON queries use JMESPath, separate from `query_json`'s JSON Pointer
+lookup. Input is limited to 200,000 characters and expressions to 1,000. Input
+and result trees allow at most 10,000 nodes and 50 nested levels; the parsed
+expression allows 500 nodes and 50 levels. Results are valid JSON up to 100,000
+characters, including scalar values and null for missing fields. Oversized
+results and non-finite numbers return errors instead of partial JSON. One worker
+per server process enforces a three-second wall-time limit, plus a 128 MB address
+space cap and two-second CPU cap on Linux. Queries cannot execute Python/shell
+code or access files or networks. JMESPath is the only new dependency in this batch.
+
+API and query documentation: [npm registry](https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md),
+[OSV query API](https://google.github.io/osv.dev/post-v1-query/),
+[GitHub workflow runs](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository),
+and [JMESPath examples](https://jmespath.org/examples.html).
+
 Run the focused utility tests:
 
 ```powershell
@@ -264,8 +319,9 @@ The script reads `MCP_API_KEY` from the environment or the project's ignored
 script makes an authenticated MCP connection and fetches `https://example.com`.
 It also fetches the Django weblog RSS feed and the Python statistics documentation
 to verify feed and table extraction, then checks the numeric, diff, and unit
-tools. The live suite also verifies PDF, public GitHub, and OpenAPI tools, for
-a total of 27 authenticated tool calls.
+tools. The live suite also verifies PDF, public GitHub, OpenAPI, npm metadata,
+OSV advisories, GitHub workflow runs, and JMESPath queries, for a total of 31
+authenticated tool calls. The new checks require deployment of the latest code.
 
 Configuration
 -------------

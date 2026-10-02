@@ -50,6 +50,8 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "summarize_numbers", "diff_text", "convert_units",
                 "extract_pdf_text", "get_github_file", "get_github_issue",
                 "get_github_pull_request", "list_github_releases", "inspect_openapi",
+                "get_npm_package", "check_package_vulnerabilities",
+                "list_github_workflow_runs", "query_json_advanced",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -147,7 +149,21 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "max_operations": 5},
                 lambda text: json.loads(text)["title"] == "Swagger Petstore"
                 and any(item["path"] == "/pets" for item in json.loads(text)["operations"]))
-            print("PASS: 27 authenticated tool calls returned correct results")
+            await check("get_npm_package", {"name": "@types/node"},
+                        lambda text: json.loads(text)["name"] == "@types/node"
+                        and bool(json.loads(text)["version"]))
+            await check("check_package_vulnerabilities", {
+                "ecosystem": "npm", "name": "lodash", "version": "4.17.20", "limit": 3},
+                lambda text: bool(json.loads(text)["vulnerabilities"])
+                and json.loads(text)["name"] == "lodash")
+            await check("list_github_workflow_runs", {"owner": "pallets", "repo": "flask", "limit": 2},
+                        lambda text: isinstance(json.loads(text)["runs"], list)
+                        and json.loads(text)["repo"] == "flask")
+            await check("query_json_advanced", {
+                "value": '{"users":[{"name":"Ada","active":true},{"name":"Bob","active":false}]}',
+                "expression": "users[?active].name"},
+                lambda text: json.loads(text) == ["Ada"])
+            print("PASS: 31 authenticated tool calls returned correct results")
 
 
 def main() -> None:

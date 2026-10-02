@@ -135,6 +135,44 @@ def list_releases(owner, repo, limit):
             "truncated": len(rows) > limit}
 
 
+def list_workflow_runs(owner, repo, branch, limit):
+    root = _repo_path(owner, repo)
+    if len(branch) > 200 or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in branch):
+        raise ValueError("branch must be at most 200 characters without whitespace or control characters")
+    if not 1 <= limit <= 20:
+        raise ValueError("limit must be between 1 and 20")
+    params = {"per_page": limit + 1}
+    if branch:
+        params["branch"] = branch
+    data = _request(f"{root}/actions/runs", params)
+    if not isinstance(data, dict) or not isinstance(data.get("workflow_runs"), list):
+        raise ValueError("GitHub did not return workflow runs")
+    rows = data["workflow_runs"]
+    total = data.get("total_count")
+    if type(total) is not int or total < len(rows) or any(
+        not isinstance(row, dict) or type(row.get("id")) is not int for row in rows
+    ):
+        raise ValueError("GitHub returned invalid workflow run metadata")
+    truncated = total > limit or len(rows) > limit
+
+    def text(value, maximum):
+        nonlocal truncated
+        if isinstance(value, str):
+            truncated |= len(value) > maximum
+        return _text(value, maximum)
+
+    runs = [{"id": row["id"], "name": text(row.get("name"), 200),
+             "title": text(row.get("display_title"), 500),
+             "branch": text(row.get("head_branch"), 200), "sha": text(row.get("head_sha"), 64),
+             "event": text(row.get("event"), 50), "status": text(row.get("status"), 50),
+             "conclusion": text(row.get("conclusion"), 50) or None,
+             "created_at": text(row.get("created_at"), 50),
+             "updated_at": text(row.get("updated_at"), 50),
+             "url": text(row.get("html_url"), 1000)} for row in rows[:limit]]
+    return {"owner": owner, "repo": repo, "branch": branch,
+            "total_count": total, "runs": runs, "truncated": truncated}
+
+
 def compare_refs(owner, repo, base, head, max_commits, max_files):
     root = _repo_path(owner, repo)
     for ref in (base, head):
