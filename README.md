@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 84 tools.
+The server registers 88 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -93,6 +93,10 @@ The server registers 84 tools.
 - `compare_env_keys(template, available_keys_json)` - compare dotenv template names with supplied environment key names without returning values.
 - `inspect_kubernetes_manifest(content, limit)` - summarize supplied Kubernetes workloads, Services, probes, resource declarations, and secret references offline.
 - `inspect_sbom(content, limit)` - inspect supplied CycloneDX JSON component inventory, declared licenses, and dependency relationships offline.
+- `inspect_junit_report(content, limit)` - summarize supplied JUnit XML outcomes, failure metadata, and slowest reported tests offline.
+- `inspect_sarif_report(content, limit)` - summarize supplied inline SARIF 2.1.0 results, explicit levels, locations, and suppression requests offline.
+- `inspect_prometheus_metrics(content, limit)` - inspect supplied Prometheus text metric families, labels, and sample values offline.
+- `analyze_access_logs(content, format, limit)` - summarize supplied Apache common/combined logs by status, method/path, errors, and reported bytes offline.
 
 Data utility examples
 ---------------------
@@ -695,6 +699,86 @@ References: [Fly configuration](https://docs.fly.io/reference/configuration),
 [Kubernetes probes](https://kubernetes.io/docs/concepts/workloads/pods/probes/), and
 [CycloneDX schema](https://github.com/CycloneDX/specification/blob/master/schema/bom-1.7.schema.json).
 
+CI reports and observability examples
+------------------------------------
+
+```text
+inspect_junit_report(content='<testsuite tests="2"><testcase name="ok" time="0.1"/><testcase name="broken"><failure message="assert failed"/></testcase></testsuite>')
+inspect_sarif_report(content='{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"demo"}},"results":[{"ruleId":"R1","level":"warning","message":{"text":"reported issue"}}]}]}')
+inspect_prometheus_metrics(content='# TYPE requests_total counter\nrequests_total{code="200"} 3\n')
+analyze_access_logs(content='192.0.2.8 - user [10/Oct/2000:13:55:36 -0700] "GET /health?token=hidden HTTP/1.1" 200 12 "-" "agent"', format='combined')
+```
+
+These tools inspect supplied text only. They do not read files, contact services,
+run tests/scanners, scrape metrics, or change deployments. They summarize reported
+observations, not verified findings, live health, or complete coverage. All four
+accept at most 200,000 input characters and reject output exceeding 100,000
+characters. `limit` defaults to 20 and accepts 1-50; totals cover all inspected
+entries, including rows omitted by the limit. Returned lists/text have explicit
+truncation indicators. Parser errors omit source snippets.
+
+JUnit uses defusedxml for common `testsuite`/`testsuites` XML, including nested
+suites and namespaces; DTDs and entities are forbidden. Observed outcomes count
+direct testcase elements once. Suite aggregate counts/times remain separate,
+and missing testcase times are not treated as measured zero. Mixed markers use
+error, failure, then skipped precedence; unmarked cases are reported as passed.
+Only declared durations are summed/ranked, not wall-clock CI duration. Failure
+bodies, stdout/stderr, properties and file attributes are omitted. This is not
+a universal JUnit schema validator and does not interpret vendor retry/flaky
+extensions. Bounds: 10,000 XML elements, depth 50, 1,000 suites, 2,000 testcases,
+and five diagnostics per testcase. `limit` bounds suites, attention
+tests and slowest tests separately. Selected text is shortened to 1,000 characters.
+
+SARIF accepts inline JSON version 2.1.0 with duplicate keys rejected. It reports
+explicit result levels/kinds and suppression metadata without resolving rule
+defaults, invocation overrides, templates, extensions or external property files.
+Absent/null results are marked unavailable, distinct from an empty result array.
+Suppression metadata states distinguish unknown, accepted, pending/unspecified
+and not-accepted requests; all results count, including accepted suppressions.
+Inline driver-rule/artifact indexes can supply IDs/URIs, but URI bases are not
+expanded. Snippets, code flows, fixes, attachments, fingerprints and suppression
+justifications are omitted. This is not full SARIF validation or evidence that
+findings are valid. Bounds: 20,000 JSON nodes, depth 50, 20 runs, 1,000 driver rules
+and artifacts per run, 2,000 total results, 20 locations/suppressions per result.
+`limit` bounds runs, rule-count rows and results separately; at most five locations
+per result are returned. Selected text is shortened to 1,000 characters (URIs 2,000).
+
+Metrics uses prometheus-client's permissive Prometheus text parser, not full
+format validation; OpenMetrics/protobuf are unsupported. It returns counter,
+gauge, histogram, summary and untyped families. Family/counter names may be
+normalized, and repeated declarations can share a parsed family block. Counts
+distinguish parsed blocks, unique family names, samples and unique series;
+duplicate series are identified by sample name and labels. NaN/+Inf/-Inf values
+are JSON strings; timestamps are in seconds. No rates, trends, health conclusions
+or histogram quantiles are inferred from a snapshot. Bounds: 5,000 lines/samples,
+10,000 characters per line, 500 parsed family blocks, 20 labels per sample, and
+2,000 characters per label value. `limit` bounds both families and samples per
+family; help text is shortened to 1,000 characters.
+
+Access logs uses apachelogs with fixed `common` or `combined` formats (default
+`combined`), not custom format strings or JSON logs. It reports status counts,
+4xx/5xx counts, known-byte totals, and UTC timestamp bounds. Missing status/byte
+fields stay separately counted; the error fraction uses known statuses only.
+Paths group exact method/path pairs, stripping queries/fragments/authority
+without decoding percent escapes or inferring route templates. `unique_path_count`
+counts these pairs, so GET and POST to one path are separate. CONNECT and
+unsupported/malformed targets remain unclassified, but valid status/byte
+observations still count. Client IPs/users, referrers and user agents are omitted;
+invalid lines are counted without snippets. No request latency is inferred.
+Bounds: 5,000 lines, 10,000 characters per line; `limit` bounds method/path/error
+rows. Returned paths are shortened to 1,000 characters.
+
+Diagnostic messages, scanner locations, metric labels/help and remaining access
+paths can contain sensitive caller-supplied data. Omitted fields are not a blanket
+redaction guarantee; sanitize reports before sending them to a shared server.
+This batch adds defusedxml, prometheus-client and apachelogs, with no new API keys.
+
+References: [JUnit XML in pytest](https://docs.pytest.org/en/stable/how-to/output.html#creating-junitxml-format-files),
+[defusedxml](https://pypi.org/project/defusedxml/),
+[SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/sarif-v2.1.0-os.html),
+[Prometheus text parser](https://github.com/prometheus/client_python/blob/master/prometheus_client/parser.py), and
+[apachelogs](https://apachelogs.readthedocs.io/en/stable/).
+
 Run the focused utility tests:
 
 ```powershell
@@ -717,8 +801,9 @@ OSV advisories, GitHub workflow runs/jobs, JMESPath queries, dependency manifest
 SQL analysis, version comparison, lockfile comparison, advisory details,
 JSON Patch, structured logs, endpoint checks, commit checks, Dockerfile inspection,
 HTTP caching, Compose/Actions configuration, redirects, CORS, Fly configuration,
-environment key comparison, Kubernetes manifests, and CycloneDX inventory, for
-a total of 51 authenticated tool calls. The new checks require deployment of
+environment key comparison, Kubernetes manifests, CycloneDX inventory, JUnit,
+SARIF, Prometheus metrics, and access logs, for a total of 55 authenticated tool
+calls. The new checks require deployment of
 the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;
 loopback/private base URLs cannot pass that outbound check.

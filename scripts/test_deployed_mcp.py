@@ -57,6 +57,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "check_http_endpoints", "get_github_commit_checks", "inspect_dockerfile", "inspect_http_cache",
                 "inspect_docker_compose", "inspect_github_actions", "inspect_redirect_chain", "inspect_http_cors",
                 "inspect_fly_config", "compare_env_keys", "inspect_kubernetes_manifest", "inspect_sbom",
+                "inspect_junit_report", "inspect_sarif_report", "inspect_prometheus_metrics", "analyze_access_logs",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -249,6 +250,24 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "content": '{"bomFormat":"CycloneDX","specVersion":"1.7","components":[{"type":"library","name":"demo","version":"1.0.0","bom-ref":"demo"}]}'},
                 lambda text: json.loads(text)["component_count"] == 1
                 and json.loads(text)["components"][0]["version"] == "1.0.0")
+            await check("inspect_junit_report", {
+                "content": '<testsuite tests="2"><testcase name="ok" time="0.1"/><testcase name="broken"><failure message="assert failed"/></testcase></testsuite>'},
+                lambda text: json.loads(text)["test_count"] == 2
+                and json.loads(text)["outcomes"]["failed"] == 1)
+            await check("inspect_sarif_report", {
+                "content": '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"demo"}},"results":[{"ruleId":"R1","level":"warning","message":{"text":"reported issue"}}]}]}'},
+                lambda text: json.loads(text)["result_count"] == 1
+                and json.loads(text)["results"][0]["rule_id"] == "R1"
+                and json.loads(text)["reported_level_counts"] == {"warning": 1})
+            await check("inspect_prometheus_metrics", {
+                "content": '# TYPE requests_total counter\nrequests_total{code="200"} 3\n'},
+                lambda text: json.loads(text)["sample_count"] == 1
+                and json.loads(text)["families"][0]["samples"][0]["value"] == 3)
+            await check("analyze_access_logs", {
+                "content": '192.0.2.8 - user [10/Oct/2000:13:55:36 -0700] "GET /health?token=hidden HTTP/1.1" 200 12 "-" "agent"'},
+                lambda text: json.loads(text)["parsed_entries"] == 1
+                and json.loads(text)["paths"] == [{"method": "GET", "path": "/health", "count": 1}]
+                and json.loads(text)["total_reported_bytes"] == 12)
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 
