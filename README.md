@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 112 tools.
+The server registers 116 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -105,6 +105,10 @@ The server registers 112 tools.
 - `compare_junit_reports(before, after, limit)` - compare matched JUnit test outcomes and durations, keeping duplicate or missing identities ambiguous.
 - `compare_har_reports(before, after, limit)` - compare grouped sanitized HAR request targets, timing observations, status counts, and reported response sizes offline.
 - `compare_k6_summaries(before, after, limit)` - compare compatible k6 metric values and explicit threshold results without evaluating expressions or guessing units.
+- `compare_sarif_reports(before, after, limit)` - compare supplied SARIF findings by scanner, rule and fingerprint, keeping missing/duplicate identities unresolved.
+- `compare_sboms(before, after, limit)` - compare supplied CycloneDX components by versionless Package URL or declared coordinates, including version and license changes.
+- `compare_prometheus_metrics(before, after, limit)` - compare supplied metric snapshots by exact series identity, with gauge deltas and raw counter differences.
+- `compare_access_logs(before, after, format, limit)` - compare supplied Apache common/combined log windows by status and query-free method/path.
 - `inspect_graphql_schema(schema_sdl, limit)` - inspect valid supplied GraphQL SDL roots, types, fields, arguments, directives, and deprecation flags offline.
 - `validate_graphql_operation(schema_sdl, document, limit)` - statically validate all supplied GraphQL operations/fragments without executing resolvers or coercing runtime variables.
 - `compare_graphql_schemas(before_sdl, after_sdl, limit)` - report GraphQL-core breaking/dangerous schema changes and separate operation-root changes offline.
@@ -988,6 +992,55 @@ threshold changes do not prove production capacity or a causal regression.
 Names, coverage paths, HAR hosts/paths, metric keys and threshold expressions can
 still contain sensitive caller-supplied data. Sanitize reports before sending
 them to a shared server; selected-field omission is not blanket redaction.
+
+Release-regression comparison examples
+--------------------------------------
+
+```text
+compare_sarif_reports(before='{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"scanner"}},"results":[{"ruleId":"R1","message":{"text":"old"},"level":"warning","fingerprints":{"primaryLocationLineHash":"abc"}}]}]}', after='{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"scanner"}},"results":[{"ruleId":"R1","message":{"text":"new"},"level":"error","fingerprints":{"primaryLocationLineHash":"abc"}}]}]}')
+compare_sboms(before='{"bomFormat":"CycloneDX","specVersion":"1.7","components":[{"type":"library","name":"demo","version":"1.0","purl":"pkg:npm/demo@1.0"}]}', after='{"bomFormat":"CycloneDX","specVersion":"1.7","components":[{"type":"library","name":"demo","version":"2.0","purl":"pkg:npm/demo@2.0"}]}')
+compare_prometheus_metrics(before='# TYPE jobs_total counter\njobs_total 10\n', after='# TYPE jobs_total counter\njobs_total 12\n')
+compare_access_logs(before='192.0.2.1 - - [10/Oct/2000:13:55:36 -0700] "GET /health HTTP/1.1" 200 12', after='192.0.2.1 - - [10/Oct/2000:13:55:36 -0700] "GET /health HTTP/1.1" 500 12', format='common')
+```
+
+These tools compare two supplied text inputs offline. They reuse the SARIF,
+CycloneDX, Prometheus text and Apache log inspectors, including their format and
+record limits. Each input is capped at 200,000 characters; output is capped at
+100,000 characters. `limit` defaults to 20 and accepts 1-50 displayed rows per
+list. Matching and counts include all bounded records before display truncation.
+They do not read files, fetch URLs, run scanners, scrape metrics or monitor logs.
+`packageurl-python` is used to parse Package URLs for SBOM matching.
+
+SARIF matches exact scanner name, rule ID and bounded `fingerprints` (or, when
+absent, `partialFingerprints`) mappings. Only explicit level, kind and suppression
+states are compared. Raw fingerprints, messages and code snippets are omitted;
+fingerprint hashes identify the selected mapping for display. Missing/duplicate
+identities remain unresolved. Missing inline results and declared external
+properties prevent a complete inline-results comparison, and even fully
+matchable supplied results do not prove scan coverage or true new/resolved bugs.
+
+SBOMs match unique parsed PURLs with the version omitted while retaining type,
+namespace, name, qualifiers and subpath. Components without a PURL use weaker
+exact role/type/group/name coordinates. BOM-local `bom-ref` values are not
+cross-report identities; duplicate identities and invalid PURLs remain
+unresolved. Version declarations, scope and license choices are compared, with
+license order ignored. Version ordering, dependency-edge changes, installed
+packages, vulnerability status and license compliance are not inferred.
+
+Prometheus series match exact parsed family/sample names and label pairs.
+Duplicate families/series remain unresolved. Gauge deltas describe two
+snapshots; counter differences are raw values, not rates or event counts.
+Counter decreases may indicate a reset, but a reset can occur without a
+decrease. Changed metric types, nonfinite values and histogram/summary parts
+receive no numeric delta. The caller must establish comparable scrape windows.
+
+Access logs match exact method and query-free path, intentionally merging
+queries. They compare observed request/error counts, per-path status changes
+and error fractions based on known statuses. Invalid, blank and unknown-status
+lines remain separately visible. IPs, usernames, referrers, user agents and
+queries are omitted, but paths can still contain sensitive data. Common and
+combined logs do not provide latency; two supplied windows alone cannot prove
+traffic-normalized rates or causal regressions.
 
 GraphQL and Postman examples
 ----------------------------

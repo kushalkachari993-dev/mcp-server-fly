@@ -32,7 +32,7 @@ def _licenses(values):
     return result
 
 
-def inspect_sbom(content, limit):
+def inspect_sbom(content, limit, *, _records=None):
     if type(limit) is not int or not 1 <= limit <= 200:
         raise ValueError("limit must be between 1 and 200")
     if not isinstance(content, str) or len(content) > 200000:
@@ -95,6 +95,8 @@ def inspect_sbom(content, limit):
         cycle = True
     dependency_rows = [{"ref": ref, "dependency_count": len(children), "depends_on": children[:limit],
                         "truncated": len(children) > limit} for ref, children in graph.items()]
+    if _records is not None:
+        _records.update({"components": rows, "dependencies": graph})
     truncated = len(rows) > limit or len(graph) > limit or len(unresolved) > limit or any(row["truncated"] for row in dependency_rows)
     return {"format": "CycloneDX", "spec_version": data["specVersion"], "bom_version": version,
             "component_count": len(rows), "types": dict(sorted(types.items())), "components": rows[:limit],

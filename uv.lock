@@ -811,6 +811,7 @@ dependencies = [
     { name = "jsonpatch" },
     { name = "jsonschema" },
     { name = "mcp", extra = ["cli"] },
+    { name = "packageurl-python" },
     { name = "packaging" },
     { name = "pint" },
     { name = "prometheus-client" },
@@ -844,6 +845,7 @@ requires-dist = [
     { name = "jsonpatch", specifier = ">=1.33,<2" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.27.0" },
+    { name = "packageurl-python", specifier = ">=0.17.6,<0.18" },
     { name = "packaging", specifier = ">=26,<27" },
     { name = "pint", specifier = ">=0.25,<0.26" },
     { name = "prometheus-client", specifier = ">=0.24.1,<0.27" },
@@ -902,6 +904,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2c/1d/4049a9e8698361cc1a1aa03a6c59e4fa4c71e0c0f94a30f988a6876a2ae6/opentelemetry_api-1.40.0.tar.gz", hash = "sha256:159be641c0b04d11e9ecd576906462773eb97ae1b657730f0ecf64d32071569f", size = 70851, upload-time = "2026-03-04T14:17:21.555Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5f/bf/93795954016c522008da367da292adceed71cca6ee1717e1d64c83089099/opentelemetry_api-1.40.0-py3-none-any.whl", hash = "sha256:82dd69331ae74b06f6a874704be0cfaa49a1650e1537d4a813b86ecef7d0ecf9", size = 68676, upload-time = "2026-03-04T14:17:01.24Z" },
+]
+
+[[package]]
+name = "packageurl-python"
+version = "0.17.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/d6/3b5a4e3cfaef7a53869a26ceb034d1ff5e5c27c814ce77260a96d50ab7bb/packageurl_python-0.17.6.tar.gz", hash = "sha256:1252ce3a102372ca6f86eb968e16f9014c4ba511c5c37d95a7f023e2ca6e5c25", size = 50618, upload-time = "2025-11-24T15:20:17.998Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b1/2f/c7277b7615a93f51b5fbc1eacfc1b75e8103370e786fd8ce2abf6e5c04ab/packageurl_python-0.17.6-py3-none-any.whl", hash = "sha256:31a85c2717bc41dd818f3c62908685ff9eebcb68588213745b14a6ee9e7df7c9", size = 36776, upload-time = "2025-11-24T15:20:16.962Z" },
 ]
 
 [[package]]

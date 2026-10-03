@@ -183,7 +183,7 @@ def _choice(value, choices):
     return value
 
 
-def inspect_sarif(content, limit):
+def inspect_sarif(content, limit, *, _records=None):
     summary = _Summary(content, limit)
     try:
         data = json.loads(content, object_pairs_hook=_unique_object)
@@ -259,6 +259,12 @@ def inspect_sarif(content, limit):
                          "message": message_text, "message_id": summary.text(message.get("id")),
                          "locations": summary.take(locations, 5), "suppression_state": state,
                          "suppressions": suppression_rows})
+            if _records is not None:
+                _records.append({"tool": name, "run_index": run_index, "result_index": result_index,
+                                 "rule_id": rule_id, "reported_level": level, "reported_kind": kind,
+                                 "suppression_state": state, "locations": locations,
+                                 "fingerprints": raw.get("fingerprints"),
+                                 "partial_fingerprints": raw.get("partialFingerprints")})
     rule_rows = [{"run_index": index, "rule_id": rule_id, "count": count} for (index, rule_id), count in rule_counts.most_common()]
     output = {"version": "2.1.0", "run_count": len(runs), "result_count": len(rows),
               "reported_level_counts": dict(sorted(levels.items())), "suppression_state_counts": dict(sorted(suppression_states.items())),
@@ -284,7 +290,7 @@ def _metric_number(value):
         raise ValueError("Metric number is outside the supported numeric range") from error
 
 
-def inspect_metrics(content, limit):
+def inspect_metrics(content, limit, *, _records=None):
     summary = _Summary(content, limit)
     lines = _lines(content)
     if any(line.strip().startswith(("# EOF", "# UNIT")) for line in lines):
@@ -326,6 +332,8 @@ def inspect_metrics(content, limit):
             families.append({"name": metric.name, "type": metric_type, "help": summary.text(metric.documentation),
                              "sample_count": len(samples), "label_names": sorted(label_names),
                              "samples": summary.take(samples), "samples_truncated": len(samples) > limit})
+            if _records is not None:
+                _records.append({"name": metric.name, "type": metric_type, "samples": samples})
     except (ValueError, OverflowError, IndexError, KeyError, AssertionError) as error:
         raise ValueError("Invalid or unsupported Prometheus text or exceeded metric limits; source text is omitted") from error
     output = {"family_count": len(families), "unique_family_count": len(names), "sample_count": sample_count,
@@ -357,13 +365,13 @@ def _request_path(request):
         return method, None
 
 
-def analyze_access(content, format, limit):
+def analyze_access(content, format, limit, *, _records=None):
     summary = _Summary(content, limit)
     if format not in ("common", "combined"):
         raise ValueError("format must be common or combined; custom formats are not supported")
     lines = _lines(content)
     parser = LogParser(COMMON if format == "common" else COMBINED)
-    statuses, methods, paths = Counter(), Counter(), Counter()
+    statuses, methods, paths, path_statuses = Counter(), Counter(), Counter(), Counter()
     invalid_samples = []
     parsed_count = invalid = blank = missing_bytes = unknown_status = unclassified = 0
     total_bytes = 0
@@ -402,11 +410,15 @@ def analyze_access(content, format, limit):
         unclassified += path is None
         if path is not None:
             paths[(method, path)] += 1
+            if status is not None:
+                path_statuses[(method, path, status)] += 1
     client_errors = sum(count for status, count in statuses.items() if 400 <= status <= 499)
     server_errors = sum(count for status, count in statuses.items() if 500 <= status <= 599)
     known_status_count = sum(statuses.values())
     path_rows = [{"method": method, "path": summary.text(path), "count": count} for (method, path), count in paths.most_common()]
     method_rows = [{"method": method, "count": count} for method, count in methods.most_common()]
+    if _records is not None:
+        _records.update({"paths": paths, "path_statuses": path_statuses})
     summary.truncated |= invalid > limit
     output = {"format": format, "line_count": len(lines), "parsed_entries": parsed_count, "invalid_entries": invalid,
               "blank_lines": blank, "unknown_status_count": unknown_status,
