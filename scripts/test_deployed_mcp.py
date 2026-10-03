@@ -60,6 +60,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "inspect_junit_report", "inspect_sarif_report", "inspect_prometheus_metrics", "analyze_access_logs",
                 "inspect_lcov_report", "inspect_cobertura_report", "inspect_har", "inspect_k6_summary",
                 "compare_coverage_reports", "compare_junit_reports", "compare_har_reports", "compare_k6_summaries",
+                "inspect_graphql_schema", "validate_graphql_operation", "compare_graphql_schemas", "inspect_postman_collection",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -308,6 +309,22 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "after": '{"metrics":{"latency":{"type":"trend","contains":"time","values":{"p(95)":40},"thresholds":{"p(95)<30":{"ok":false}}}}}'},
                 lambda text: json.loads(text)["newly_failing_threshold_count"] == 1
                 and json.loads(text)["metric_comparisons"][0]["values"][0]["delta"] == 20)
+            await check("inspect_graphql_schema", {"schema_sdl": 'type Query { hello: String }'},
+                lambda text: json.loads(text)["operation_roots"]["query"] == "Query"
+                and json.loads(text)["field_count"] == 1)
+            await check("validate_graphql_operation", {
+                "schema_sdl": 'type Query { hello: String }', "document": 'query Get { hello }'},
+                lambda text: json.loads(text)["valid"] is True
+                and json.loads(text)["operation_count"] == 1)
+            await check("compare_graphql_schemas", {
+                "before_sdl": 'type Query { old: String }', "after_sdl": 'type Query { hello: String }'},
+                lambda text: json.loads(text)["breaking_change_count"] == 1
+                and json.loads(text)["breaking_changes"][0]["kind"] == "FIELD_REMOVED")
+            await check("inspect_postman_collection", {
+                "content": '{"info":{"name":"demo","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},"auth":{"type":"bearer"},"item":[{"name":"health","request":{"method":"GET","url":"https://example.com/health?token=hidden"}}]}'},
+                lambda text: json.loads(text)["request_count"] == 1
+                and json.loads(text)["requests"][0]["target"]["path"] == "/health"
+                and json.loads(text)["requests"][0]["effective_declared_auth_type"] == "bearer")
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 

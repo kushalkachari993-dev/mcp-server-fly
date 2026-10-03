@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 96 tools.
+The server registers 100 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -105,6 +105,10 @@ The server registers 96 tools.
 - `compare_junit_reports(before, after, limit)` - compare matched JUnit test outcomes and durations, keeping duplicate or missing identities ambiguous.
 - `compare_har_reports(before, after, limit)` - compare grouped sanitized HAR request targets, timing observations, status counts, and reported response sizes offline.
 - `compare_k6_summaries(before, after, limit)` - compare compatible k6 metric values and explicit threshold results without evaluating expressions or guessing units.
+- `inspect_graphql_schema(schema_sdl, limit)` - inspect valid supplied GraphQL SDL roots, types, fields, arguments, directives, and deprecation flags offline.
+- `validate_graphql_operation(schema_sdl, document, limit)` - statically validate all supplied GraphQL operations/fragments without executing resolvers or coercing runtime variables.
+- `compare_graphql_schemas(before_sdl, after_sdl, limit)` - report GraphQL-core breaking/dangerous schema changes and separate operation-root changes offline.
+- `inspect_postman_collection(content, limit)` - inspect supplied Postman Collection v2.1 folders, requests, sanitized targets, and declared/inherited authentication types offline.
 
 Data utility examples
 ---------------------
@@ -973,6 +977,91 @@ Names, coverage paths, HAR hosts/paths, metric keys and threshold expressions ca
 still contain sensitive caller-supplied data. Sanitize reports before sending
 them to a shared server; selected-field omission is not blanket redaction.
 
+GraphQL and Postman examples
+----------------------------
+
+```text
+inspect_graphql_schema(schema_sdl='type Query { hello: String user(id: ID!): User } type User { id: ID! old: String @deprecated }')
+validate_graphql_operation(schema_sdl='type Query { hello: String }', document='query Get { hello }')
+compare_graphql_schemas(before_sdl='type Query { old: String }', after_sdl='type Query { hello: String }')
+inspect_postman_collection(content='{"info":{"name":"demo","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},"auth":{"type":"bearer"},"item":[{"name":"health","request":{"method":"GET","url":"https://example.com/health?token=hidden"}}]}')
+```
+
+All four accept supplied text/JSON, not filenames or live endpoints. No new API
+keys are needed. GraphQL adds `graphql-core>=3.2.11,<3.3`, locked in `uv.lock`;
+run `uv sync` after updating. The 3.2 series is used deliberately because its minor
+versions can change APIs. No requests, resolvers, subscriptions, collection
+scripts or source-file/import resolution are executed by these tools.
+
+Each input is capped at 200,000 characters. `limit` defaults to 20 and accepts
+1-50 rows per returned list; full bounded records are checked before output
+limiting. Output is capped at 100,000 characters, with explicit truncation;
+oversized summaries ask for smaller inputs/limits. GraphQL parsing additionally
+caps schemas at 8,000 tokens, operation documents at 4,000 tokens, delimiter
+nesting at 50, AST nodes at 10,000, definitions at 200, and names at 1,000
+characters. Analysis runs in a five-second spawned worker with one active
+GraphQL worker per server process; busy calls return a retry error. POSIX workers
+also have a four-second CPU limit. Failed/timed-out workers are cleaned up.
+
+The GraphQL inspector uses GraphQL-core SDL/schema validation and checks supplied
+default literals with its value parser. It summarizes explicit/inferred query,
+mutation and subscription roots, object/interface/input fields, argument types
+and required/default-presence flags, unions, enums and directives. Introspection
+types are excluded; referenced specified scalars/directives are identified.
+Descriptions, default values, scalar URLs, directive application values and
+deprecation reasons are omitted. Validity does not prove runtime behavior or auth.
+
+Operation validation checks **every operation and fragment** using the library's
+specified rules, without selecting/executing an operation. Variable definitions
+and literals are statically checked; runtime variable values and custom scalar
+implementations are not supplied or coerced. Diagnostics return rule IDs, node
+kinds, selected identifiers and source locations instead of library messages
+that could echo literal values. Syntax errors report a fixed message/location.
+At most 50 validation errors plus an abort marker are collected, independently
+of output `limit`; capped counts are observations, not total errors beyond the
+cap. Authorization, query costs and runtime resolver behavior are outside scope.
+
+Schema comparison uses GraphQL-core 3.2 breaking/dangerous-change categories for
+fields, arguments, types, unions/enums, interfaces and directive definitions.
+Root changes are separate review items; root replacement is not automatically a
+breaking client contract. Added/removed type names and full change counts are
+returned even if lists truncate. Argument-default change descriptions replace
+actual values with a fixed message. This is not exhaustive compatibility analysis
+of every addition, description, custom directive/scalar or runtime behavior.
+
+Postman accepts v2.1 JSON exports with these official schema URL spellings:
+
+```text
+https://schema.getpostman.com/json/collection/v2.1.0/collection.json
+https://schema.postman.com/json/collection/v2.1.0/collection.json
+https://schema.getpostman.com/json/draft-07/collection/v2.1.0/
+https://schema.postman.com/collection/json/v2.1.0/draft-07/collection.json
+```
+
+The inspector checks selected fields, not the complete Postman JSON Schema.
+Bounds: 20,000 JSON nodes, depth 50, 1,000 total folder/request items, URLs at
+10,000 characters. Duplicate JSON keys and nonfinite numbers are rejected.
+String requests imply GET; missing object methods stay unknown and are counted
+separately. Folder ancestry uses numeric indexes so unnamed/duplicate names do
+not imply identical folders. Null/absent auth inherits the nearest folder or
+collection declaration; `noauth` stops inheritance. The v2.1 schema's eleven auth
+types are supported; missing declarations stay unknown, not proof of no runtime
+authentication. Credential/helper values are omitted.
+
+Only URL strings or object `raw` fields are inspected. HTTP/HTTPS targets omit
+userinfo, queries and fragments; display paths shorten at 1,000 characters.
+Components-only objects are not reconstructed or reconciled with `raw` fields.
+URLs with `{{...}}` templates, unsupported schemes or missing URLs return no
+target text. Variables/environment values are never resolved. Headers, bodies,
+examples, scripts, descriptions, certificates and proxy settings are omitted.
+Names, GraphQL identifiers/type references and HTTP hosts/paths can still contain
+sensitive caller-supplied data; sanitize inputs before sharing them.
+
+References: [GraphQL-core utilities](https://graphql-core-3.readthedocs.io/en/stable/modules/utilities.html),
+[validation](https://graphql-core-3.readthedocs.io/en/stable/modules/validation.html),
+[version compatibility](https://pypi.org/project/graphql-core/), and
+[Postman Collection v2.1 schema](https://schema.postman.com/collection/json/v2.1.0/draft-07/collection.json).
+
 Run the focused utility tests:
 
 ```powershell
@@ -997,7 +1086,8 @@ JSON Patch, structured logs, endpoint checks, commit checks, Dockerfile inspecti
 HTTP caching, Compose/Actions configuration, redirects, CORS, Fly configuration,
 environment key comparison, Kubernetes manifests, CycloneDX inventory, JUnit,
 SARIF, Prometheus metrics, access logs, LCOV/Cobertura coverage, HAR, k6 summaries,
-and coverage/JUnit/HAR/k6 report comparisons, for a total of 63 authenticated tool
+coverage/JUnit/HAR/k6 report comparisons, GraphQL schema/operation analysis,
+and Postman collection inspection, for a total of 67 authenticated tool
 calls. The new checks require deployment of
 the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;
