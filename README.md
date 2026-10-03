@@ -65,12 +65,16 @@ Available tools
 - `get_pypi_package(name)` - summarize a public PyPI project's latest metadata.
 - `get_npm_package(name)` - summarize a public npm package's latest-tag metadata.
 - `check_package_vulnerabilities(ecosystem, name, version, limit)` - look up known OSV advisories for one package version.
+- `check_dependencies_batch(packages_json, limit)` - check up to 50 exact package versions against OSV in one request.
 - `list_github_workflow_runs(owner, repo, branch, limit)` - read recent public GitHub Actions run statuses.
 - `query_json_advanced(value, expression)` - filter, sort, and reshape JSON using JMESPath.
 - `list_github_workflow_jobs(owner, repo, run_id, limit, max_steps)` - read public workflow job and step statuses.
 - `inspect_dependency_manifest(content, format, limit)` - inspect declared npm or Python dependencies offline.
+- `inspect_lockfile(content, format, limit)` - inspect resolved versions in package-lock.json v2/v3 or pylock.toml offline.
 - `analyze_sql(sql, dialect)` - report statement types and syntactic references without executing SQL.
 - `compare_versions(first, second, scheme)` - compare exact SemVer or Python PEP 440 versions.
+- `inspect_http_security_headers(url)` - summarize common security-related response headers on a public URL.
+- `get_github_commit(owner, repo, ref, max_files)` - read public commit metadata and changed-file summaries.
 
 Data utility examples
 ---------------------
@@ -217,6 +221,12 @@ truncation flags; they do not return patches. OpenAPI comparison handles at most
 to declared security scheme names. It does not compare schemas or OAuth scopes
 and rejects path/operation `$ref` entries it cannot resolve.
 
+Commit inspection reads one public commit by branch, tag, or SHA and returns
+message, author/committer metadata, verification status, aggregate stats, and
+up to 50 changed-file summaries. It does not return patches. HTTP security
+header inspection uses HEAD with a GET fallback, checks common browser security
+headers, and reports missing-header notes without assigning a security score.
+
 TLS inspection verifies the certificate and hostname on port 443, reporting
 expiry and up to 20 DNS names. Invalid certificates return an error. DNS lookup
 uses Cloudflare DNS over HTTPS, so queried domains are sent to Cloudflare;
@@ -339,6 +349,14 @@ declarations (including Poetry), workspaces, and overrides receive scope warning
 where present. This is not a full manifest validator or dependency resolver;
 declared constraints are not installed versions. No files/URLs are opened and no
 packages or scripts are installed or executed.
+
+Lockfile inspection accepts supplied `package-lock.json` v2/v3 or `pylock.toml`
+text and lists resolved package versions offline. It does not support npm v1
+lockfiles, unstable `uv.lock` parsing, installation, resolution, or local file
+access. It accepts up to 2 MB and returns at most 500 package records. The
+batch dependency audit accepts up to 50 exact package identities and sends one
+OSV querybatch request; advisory summaries are bounded and no matches do not
+prove that a package is safe.
 
 Manifests allow 200,000 input characters, 10,000 nodes, 50 nesting levels, and
 1,000 dependency declarations. Requirement strings are capped at 1,000 characters.

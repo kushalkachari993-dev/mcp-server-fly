@@ -124,3 +124,17 @@ def register(mcp):
             return json.dumps(result, indent=2)
         except (ValueError, urllib3.exceptions.HTTPError, OSError) as error:
             return f"Error: {error}"
+
+    @mcp.tool()
+    async def get_github_commit(owner: str, repo: str, ref: str, max_files: int = 20) -> str:
+        """Read public GitHub commit metadata for a branch, tag, or SHA.
+        Returns message, authors, verification status, stats, and up to 50 changed
+        file summaries. Patches and private repositories are not returned.
+        """
+        try:
+            if not 1 <= max_files <= 50:
+                raise ValueError("max_files must be between 1 and 50")
+            result = await anyio.to_thread.run_sync(service.read_commit, owner, repo, ref, max_files)
+            return json.dumps(result, indent=2)
+        except (ValueError, urllib3.exceptions.HTTPError, OSError) as error:
+            return f"Error: {error}"

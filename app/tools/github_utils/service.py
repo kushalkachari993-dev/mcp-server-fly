@@ -254,3 +254,48 @@ def compare_refs(owner, repo, base, head, max_commits, max_files):
         "commits_truncated": total_commits > max_commits,
         "files_truncated": len(files) > max_files or len(files) >= 300,
     }
+
+
+def read_commit(owner, repo, ref, max_files):
+    if not _REF.fullmatch(ref) or ref.endswith("/") or ".." in ref or "//" in ref:
+        raise ValueError("ref must be a valid branch, tag, or commit reference")
+    data = _request(f"{_repo_path(owner, repo)}/commits/{quote(ref, safe='')}")
+    if not isinstance(data, dict) or not isinstance(data.get("sha"), str) or not data["sha"]:
+        raise ValueError("GitHub did not return a commit")
+    commit = data.get("commit")
+    if not isinstance(commit, dict):
+        raise ValueError("GitHub returned invalid commit metadata")
+    verification = commit.get("verification") or {}
+    if not isinstance(verification, dict):
+        raise ValueError("GitHub returned invalid verification metadata")
+    files = data.get("files", [])
+    if not isinstance(files, list):
+        raise ValueError("GitHub returned invalid changed files")
+    truncated = len(files) > max_files or len(files) >= 300
+    rows = []
+    for row in files[:max_files]:
+        if not isinstance(row, dict) or not isinstance(row.get("filename"), str):
+            raise ValueError("GitHub returned an invalid changed file")
+        rows.append({"path": _text(row["filename"], 500), "status": _text(row.get("status"), 30),
+                     "additions": row.get("additions", 0), "deletions": row.get("deletions", 0),
+                     "changes": row.get("changes", 0)})
+    author = commit.get("author") or {}
+    committer = commit.get("committer") or {}
+    stats = data.get("stats") or {}
+    if not isinstance(author, dict) or not isinstance(committer, dict) or not isinstance(stats, dict):
+        raise ValueError("GitHub returned invalid commit details")
+    return {
+        "owner": owner, "repo": repo, "ref": ref, "sha": data["sha"],
+        "message": _text(commit.get("message"), 2000),
+        "author": {"name": _text(author.get("name"), 200), "email": _text(author.get("email"), 300),
+                   "date": _text(author.get("date"), 50)},
+        "committer": {"name": _text(committer.get("name"), 200), "email": _text(committer.get("email"), 300),
+                      "date": _text(committer.get("date"), 50)},
+        "verification": {"verified": verification.get("verified", False),
+                          "reason": _text(verification.get("reason"), 100)},
+        "parents": [_text(parent.get("sha"), 64) for parent in data.get("parents", [])[:10]
+                    if isinstance(parent, dict)],
+        "stats": {"additions": stats.get("additions", 0), "deletions": stats.get("deletions", 0),
+                  "total": stats.get("total", 0)},
+        "url": _text(data.get("html_url"), 1000), "files": rows, "truncated": truncated,
+    }
