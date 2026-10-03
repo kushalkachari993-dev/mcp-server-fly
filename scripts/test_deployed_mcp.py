@@ -61,6 +61,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "inspect_lcov_report", "inspect_cobertura_report", "inspect_har", "inspect_k6_summary",
                 "compare_coverage_reports", "compare_junit_reports", "compare_har_reports", "compare_k6_summaries",
                 "inspect_graphql_schema", "validate_graphql_operation", "compare_graphql_schemas", "inspect_postman_collection",
+                "compare_docker_compose", "compare_kubernetes_manifests", "compare_github_actions", "compare_fly_configs",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -325,6 +326,26 @@ async def run_test(base_url: str, api_key: str) -> None:
                 lambda text: json.loads(text)["request_count"] == 1
                 and json.loads(text)["requests"][0]["target"]["path"] == "/health"
                 and json.loads(text)["requests"][0]["effective_declared_auth_type"] == "bearer")
+            await check("compare_docker_compose", {
+                "before": 'services: {web: {image: "app:1"}}',
+                "after": 'services: {web: {image: "app:2"}, worker: {image: "app:2"}}'},
+                lambda text: json.loads(text)["changed_count"] == 1
+                and json.loads(text)["matching"]["added"] == [{"name": "worker"}])
+            await check("compare_kubernetes_manifests", {
+                "before": 'apiVersion: v1\nkind: Pod\nmetadata: {name: app}\nspec: {containers: [{name: web, image: "app:1"}]}',
+                "after": 'apiVersion: v1\nkind: Pod\nmetadata: {name: app}\nspec: {containers: [{name: web, image: "app:2"}]}'},
+                lambda text: json.loads(text)["matching"]["matched_count"] == 1
+                and json.loads(text)["changed_count"] == 1)
+            await check("compare_github_actions", {
+                "before": 'on: push\njobs: {test: {steps: [{uses: "actions/checkout@v4"}]}}',
+                "after": 'on: push\njobs: {test: {steps: [{uses: "actions/checkout@v5"}]}}'},
+                lambda text: json.loads(text)["changed_count"] == 1
+                and json.loads(text)["comparisons"][0]["changes"][0]["path"] == "/steps")
+            await check("compare_fly_configs", {
+                "before": 'app = "demo"\n[http_service]\ninternal_port = 8000\nauto_stop_machines = "stop"\n',
+                "after": 'app = "demo"\n[http_service]\ninternal_port = 8000\nauto_stop_machines = "off"\n'},
+                lambda text: json.loads(text)["selected_fields_equal"] is False
+                and json.loads(text)["configuration_changes"][0]["path"] == "/services")
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 

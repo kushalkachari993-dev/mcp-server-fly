@@ -369,7 +369,7 @@ def _pod(raw):
             "restart_policy": _text(raw.get("restartPolicy"), "Pod restartPolicy")}
 
 
-def inspect_kubernetes(content, limit):
+def inspect_kubernetes(content, limit, *, _complete=False):
     _limit(limit)
     objects = _kubernetes_documents(content)
     rows, kinds, container_count = [], Counter(), 0
@@ -420,7 +420,7 @@ def inspect_kubernetes(content, limit):
             row["data_keys"] = {field: _names(list(_mapping(obj.get(field, {}), "Data declarations")), "Data keys") for field in fields}
         rows.append(row)
     return {"object_count": len(rows), "container_count": container_count, "kinds": dict(sorted(kinds.items())),
-            "objects": rows[:limit], "truncated": len(rows) > limit,
+            "objects": rows if _complete else rows[:limit], "truncated": not _complete and len(rows) > limit,
             "notes": ["Common workload, Service, Secret and ConfigMap declarations only; other kinds receive metadata-only summaries.",
                       "No Kubernetes schema/API-version validation, cluster access, reference resolution, Helm/Kustomize rendering, defaults, or execution.",
                       "Environment and Secret/ConfigMap values, annotations, command bodies, arguments and probe header values are omitted.",

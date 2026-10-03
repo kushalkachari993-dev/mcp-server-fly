@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 100 tools.
+The server registers 104 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -109,6 +109,10 @@ The server registers 100 tools.
 - `validate_graphql_operation(schema_sdl, document, limit)` - statically validate all supplied GraphQL operations/fragments without executing resolvers or coercing runtime variables.
 - `compare_graphql_schemas(before_sdl, after_sdl, limit)` - report GraphQL-core breaking/dangerous schema changes and separate operation-root changes offline.
 - `inspect_postman_collection(content, limit)` - inspect supplied Postman Collection v2.1 folders, requests, sanitized targets, and declared/inherited authentication types offline.
+- `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
+- `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
+- `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
+- `compare_fly_configs(before, after, limit)` - compare selected supplied fly.toml regions, service ports/checks, VM settings, autostart/autostop, mounts and configuration key names offline.
 
 Data utility examples
 ---------------------
@@ -1062,6 +1066,86 @@ References: [GraphQL-core utilities](https://graphql-core-3.readthedocs.io/en/st
 [version compatibility](https://pypi.org/project/graphql-core/), and
 [Postman Collection v2.1 schema](https://schema.postman.com/collection/json/v2.1.0/draft-07/collection.json).
 
+Deployment configuration comparison examples
+--------------------------------------------
+
+```text
+compare_docker_compose(before='services: {web: {image: "app:1"}}', after='services: {web: {image: "app:2"}, worker: {image: "app:2"}}')
+compare_kubernetes_manifests(before='apiVersion: v1\nkind: Pod\nmetadata: {name: app}\nspec: {containers: [{name: web, image: "app:1"}]}', after='apiVersion: v1\nkind: Pod\nmetadata: {name: app}\nspec: {containers: [{name: web, image: "app:2"}]}')
+compare_github_actions(before='on: push\njobs: {test: {steps: [{uses: "actions/checkout@v4"}]}}', after='on: push\njobs: {test: {steps: [{uses: "actions/checkout@v5"}]}}')
+compare_fly_configs(before='app = "demo"\n[http_service]\ninternal_port = 8000\nauto_stop_machines = "stop"\n', after='app = "demo"\n[http_service]\ninternal_port = 8000\nauto_stop_machines = "off"\n')
+```
+
+These four tools reuse existing inspectors and dependencies. They accept file
+contents, never filenames, and require no new API keys. Each input is capped at
+200,000 characters, 10,000 parsed/expanded nodes and 50 nesting levels. Existing
+format limits still apply: 100 Compose services, 100 Actions jobs/1,000 steps,
+100 Kubernetes documents/objects and 200 containers, and 100 entries per Fly
+collection. Empty Compose/job/object inventories are not accepted by the
+existing inspectors. This is selected-field comparison, not complete schema
+validation, a generic file diff, compatibility analysis or a deployment verdict.
+
+Full bounded records, steps and selected text are compared before display
+limiting. `limit` defaults to 20 and accepts 1-50 entries per returned list,
+including nested before/after lists. Display strings shorten at 2,000 characters;
+`truncated` marks partial display, not partial comparison. Output is capped at
+100,000 characters; oversized results return an error asking for smaller
+inputs/limits. A reported change can therefore have equal shortened previews.
+
+All tools report `configuration_changes` with JSON Pointer paths, change type,
+before/after selected values and presence flags. The Compose/Actions/Kubernetes
+tools also report `matching` counts and added/removed identities, changed records
+in `comparisons`, `changed_count` and `unchanged_count`. `change_count` counts
+changed selected fields/sequences, including top-level changes; added/removed
+records are counted separately. Counts cover all supplied bounded records even
+when display lists shorten. Added/removed does not prove complete inventories.
+
+`selected_fields_equal` means no change in the selected declarations, not that
+the complete configurations or deployments are equivalent. It is false when a
+known selected-field change or record addition/removal is found; null when there
+are only unresolved/ambiguous identities. It is true otherwise, including when
+only omitted values change. An ambiguous record is never called unchanged.
+
+Compose services match by exact name and Actions jobs by exact job ID; renames
+are added/removed. Kubernetes objects match by exact API group, kind, declared
+namespace and metadata.name. API-version changes within one group remain matched
+and are reported. Repeated identities, including two versions of the same group,
+are ambiguous; generateName-only objects and malformed group/version splits
+remain unmatchable. Omitted namespaces match other omitted declarations, not an
+inferred `default` or cluster namespace. Unsupported kinds are metadata-only.
+
+Dictionary field order is ignored. Lists remain whole declared sequences,
+including ports, environments/key-name lists, containers, references, triggers,
+steps and Fly service/VM/mount/check lists; entries are not guessed or paired by
+index. Reordering these lists or changing declaration spelling can be reported
+even if runtime behavior would be equivalent. Names listed from mappings retain
+their declaration order. Resource quantities, ports, action refs, VM sizing and
+legacy boolean/current string autostop settings are not semantically normalized.
+
+Compose comparison covers inspector-selected images/build paths, ports,
+dependencies, environment names, health-check declarations/settings and top-level
+resource names. Actions covers triggers/filters, explicit permission declarations,
+runners, needs, action references, step sequences, environment names and matrix
+axis names/expression presence. Matrix values, conditions, concurrency and actual
+token permissions are not evaluated. Kubernetes covers common workload and
+Service settings, probes/resources and Secret/ConfigMap references/key names;
+labels, annotations, rollout strategies and custom-kind bodies are outside scope.
+Fly covers app/region, selected build/deploy fields, environment/process names,
+service ports/checks/concurrency/autostart/autostop, VM declarations and mounts.
+
+Environment/header/build-argument/Secret/ConfigMap values, script/command bodies
+and Actions `with` values are omitted, including value-only changes. Names, paths,
+selectors and image/action references can still contain sensitive caller data.
+Sanitize supplied files before sharing results. No defaults, variable/expression
+expansion, includes/extends/override merging, reusable-workflow resolution,
+Helm/Kustomize rendering, file/network/cluster access, execution, deployment,
+live Machine inspection or pricing/cost inference is performed.
+
+References: [Compose services](https://docs.docker.com/reference/compose-file/services/),
+[Kubernetes object identities](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/),
+[Actions workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax), and
+[Fly app configuration](https://docs.fly.io/reference/configuration).
+
 Run the focused utility tests:
 
 ```powershell
@@ -1087,7 +1171,8 @@ HTTP caching, Compose/Actions configuration, redirects, CORS, Fly configuration,
 environment key comparison, Kubernetes manifests, CycloneDX inventory, JUnit,
 SARIF, Prometheus metrics, access logs, LCOV/Cobertura coverage, HAR, k6 summaries,
 coverage/JUnit/HAR/k6 report comparisons, GraphQL schema/operation analysis,
-and Postman collection inspection, for a total of 67 authenticated tool
+Postman collection inspection and Compose/Kubernetes/Actions/Fly configuration
+comparisons, for a total of 71 authenticated tool
 calls. The new checks require deployment of
 the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;

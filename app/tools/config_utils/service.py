@@ -131,27 +131,32 @@ def _graph(rows):
 
 
 class _Summary:
-    def __init__(self, limit):
+    def __init__(self, limit, *, _complete=False):
         if type(limit) is not int or not 1 <= limit <= 50:
             raise ValueError("limit must be between 1 and 50")
         self.limit, self.truncated = limit, False
+        self._complete = _complete
 
     def text(self, value):
         if value is None:
             return None
         if not isinstance(value, str):
             raise ValueError("Declared text fields must be strings")
+        if self._complete:
+            return value
         self.truncated |= len(value) > 2000
         return value[:2000]
 
     def items(self, values, maximum=None):
+        if self._complete:
+            return values
         maximum = self.limit if maximum is None else maximum
         self.truncated |= len(values) > maximum
         return values[:maximum]
 
 
-def inspect_compose(content, limit):
-    summary, data = _Summary(limit), _load(content)
+def inspect_compose(content, limit, *, _complete=False):
+    summary, data = _Summary(limit, _complete=_complete), _load(content)
     services = _mapping(data.get("services"), "services")
     if not 1 <= len(services) <= 100:
         raise ValueError("Compose must declare between one and 100 services")
@@ -238,8 +243,8 @@ def _permissions(value):
     return {"mode": "explicit", "scopes": {_name(name): level for name, level in scopes.items()}}
 
 
-def inspect_actions(content, limit, max_steps):
-    summary, data = _Summary(limit), _load(content)
+def inspect_actions(content, limit, max_steps, *, _complete=False):
+    summary, data = _Summary(limit, _complete=_complete), _load(content)
     if type(max_steps) is not int or not 1 <= max_steps <= 50:
         raise ValueError("max_steps must be between 1 and 50")
     on = data.get("on")
@@ -300,7 +305,7 @@ def inspect_actions(content, limit, max_steps):
                      "environment_names": summary.items(_env_names(job.get("env", {})), 100),
                      "matrix_axes": [_name(key) for key in matrix if key not in {"include", "exclude"}] if isinstance(matrix, dict) else [],
                      "matrix_expression": isinstance(matrix, str), "step_count": len(steps),
-                     "steps": summary.items(step_rows, max_steps), "steps_truncated": len(steps) > max_steps})
+                     "steps": summary.items(step_rows, max_steps), "steps_truncated": not _complete and len(steps) > max_steps})
     graph = _graph(graph_rows)
     summary.truncated |= graph["unknown_dependency_count"] > 100
     return {"name": summary.text(data.get("name")), "events": summary.items(events, 100),
