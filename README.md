@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 88 tools.
+The server registers 92 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -97,6 +97,10 @@ The server registers 88 tools.
 - `inspect_sarif_report(content, limit)` - summarize supplied inline SARIF 2.1.0 results, explicit levels, locations, and suppression requests offline.
 - `inspect_prometheus_metrics(content, limit)` - inspect supplied Prometheus text metric families, labels, and sample values offline.
 - `analyze_access_logs(content, format, limit)` - summarize supplied Apache common/combined logs by status, method/path, errors, and reported bytes offline.
+- `inspect_lcov_report(content, limit)` - inspect supplied LCOV line/function/branch observations, declarations, uncovered lines, and count mismatches offline.
+- `inspect_cobertura_report(content, limit)` - inspect supplied Cobertura XML rates, direct class line/branch observations, and least-covered classes offline.
+- `inspect_har(content, limit)` - inspect supplied HAR 1.2 request statuses, slow requests, query-free targets, timings, and response sizes offline.
+- `inspect_k6_summary(content, limit)` - inspect supplied legacy or version 1.0.0 machine-readable k6 summaries, explicit thresholds, and individual checks offline.
 
 Data utility examples
 ---------------------
@@ -779,6 +783,102 @@ References: [JUnit XML in pytest](https://docs.pytest.org/en/stable/how-to/outpu
 [Prometheus text parser](https://github.com/prometheus/client_python/blob/master/prometheus_client/parser.py), and
 [apachelogs](https://apachelogs.readthedocs.io/en/stable/).
 
+Coverage and performance examples
+---------------------------------
+
+```text
+inspect_lcov_report(content='SF:app.py\nDA:1,2\nDA:2,0\nLF:2\nLH:1\nend_of_record\n')
+inspect_cobertura_report(content='<coverage><packages><package name="demo"><classes><class name="App" filename="app.py"><lines><line number="1" hits="2"/><line number="2" hits="0"/></lines></class></classes></package></packages></coverage>')
+inspect_har(content='{"log":{"version":"1.2","entries":[{"request":{"method":"GET","url":"https://example.com/health?token=hidden"},"response":{"status":200,"bodySize":12},"time":25,"timings":{"wait":20,"receive":5}}]}}')
+inspect_k6_summary(content='{"metrics":{"http_reqs":{"type":"counter","contains":"default","values":{"count":10,"rate":2},"thresholds":{"count>5":{"ok":true}}}},"state":{"testRunDurationMs":5000}}')
+```
+
+All four work on supplied text, without opening source/report files, contacting
+URLs, executing tests/load generators, or evaluating threshold expressions. These
+are bounded inspectors, not full format/schema validators, and reported coverage
+or performance is not proof of correctness, production capacity or complete data.
+No new dependencies or API keys are needed. Inputs are capped at 200,000 characters,
+outputs at 100,000. `limit` defaults to 20 and accepts 1-50 rows per returned list;
+counts and selected-field checks cover omitted rows too. Large summaries return
+an error asking for a smaller input/limit. Truncation is explicit, and parser
+errors omit source snippets.
+
+LCOV supports `SF`/`KF` source sections, `TN`, `DA`, legacy `FN`/`FNDA`, grouped
+`FNL`/`FNA`, `BRDA`, and line/function/branch summary counts. Grouped aliases count
+as one function; mixed function formats, duplicate coverpoints within a section,
+misplaced records and unterminated sections are rejected. Observed counts stay
+separate from declarations; mismatches are reported. Totals sum sections without
+merging repeated source paths/test names, so they are not unique-file coverage.
+Unreported function execution counts stay unknown. Branch `-` counts as not hit
+with an unknown taken-count indicator; `U`-marked branches are returned but excluded
+from coverage totals. Zero denominators/unknown function hits yield null coverage
+percentages. Checksums and `VER` are not verified; uninspected record types such as
+MC/DC are counted in `ignored_record_types` without returning their payloads.
+Bounds: 5,000 lines, 10,000 characters per line, 200 source sections. `limit` bounds
+sections and each section's uncovered lines, function/alias rows and branch rows.
+
+Cobertura supports common coverage/package/class/line XML, including namespaces.
+Root/package/class declarations remain separate from observations. Only direct
+class line records are counted, not duplicate method-level copies. Classes sharing
+a filename remain separate observations. Branch counts use explicit
+`condition-coverage` hit/total pairs, not rounded percentages. Missing counts on
+branch lines are tracked in `observed_branches.unknown` as unknown branch *lines*,
+not an invented number of branches; percentages stay null if any such lines exist.
+The least-covered list ranks classes with measured direct line records. External
+DOCTYPE declarations are accepted without loading DTDs, but entity definitions
+and external entity references are forbidden. Source-root text, method details,
+XInclude and vendor extensions are not resolved. Bounds: 10,000 XML elements,
+depth 50, 200 packages, 1,000 classes, 5,000 direct class line records. `limit`
+bounds packages/classes, least-covered classes and uncovered lines per class.
+
+HAR accepts JSON version 1.2. It returns individual entries, slowest/error requests,
+status counts, host/MIME counts, and duration/timing-stage statistics. Only
+HTTP/HTTPS targets return scheme/host/port/path; userinfo, query and fragment are
+discarded, and other schemes return no target text. Cookies, headers, request and
+response bodies, redirect URL values, comments, server-IP fields and page metadata
+are omitted. A URL hostname can itself be an IP; it is never resolved or contacted.
+Missing values and `-1` timing/body-size sentinels remain unknown, while measured
+zero values stay zero. Status `0` is separate from HTTP 4xx/5xx errors. Timings are
+milliseconds, with SSL reported separately but not added again to connect time.
+Entry durations do not imply total page-load/wall-clock time. Body-size and
+content-size totals are distinct reported fields, not total wire traffic. Bounds:
+20,000 JSON nodes, depth 50, 1,000 entries, 200 pages, 10,000 characters per input
+URL; returned paths are shortened to 1,000 characters. `limit` bounds each entry,
+slowest/error, host and MIME list.
+
+k6 supports flat legacy `handleSummary(data)` JSON (top-level metric map and optional
+`root_group`/`state`) and machine-readable schema version `1.0.0` (metadata/config,
+`results.metrics` array and optional check collections). Other versions, grouped
+modern summaries, old flattened `--summary-export` metrics and raw JSONL are
+rejected with a format error. Supply a supported JSON summary, not the output
+filename map returned by `handleSummary`. Values, including custom percentile
+keys and reported rates, are preserved without applying display-unit options or
+recalculating throughput. Legacy duration milliseconds are converted to seconds;
+machine v1 config duration is already seconds. Metric-level threshold `ok` statuses
+are counted as passed/failed/unknown without evaluating expressions. Missing or
+empty threshold metadata does not imply the test passed; machine v1 reports without
+threshold information remain unknown. Individual check records are counted once;
+missing pass/fail counters remain incomplete. Tagged metrics and separate check
+metrics are not summed into overlapping totals; group/scenario metric aggregation
+is unsupported. Setup data, script paths, IDs and options are omitted. Bounds:
+20,000 JSON nodes, depth 50, 500 metrics per collection, 50 value fields and
+thresholds per metric, 1,000 total thresholds/checks, 200 legacy groups. `limit`
+bounds metric, threshold, failed-threshold, check and attention-check lists.
+
+Coverage paths/names, HAR hosts/paths/MIME values and k6 metric/check/group names or
+threshold expressions can still contain sensitive caller-supplied information.
+Omitting selected fields is not a blanket redaction guarantee; sanitize reports
+before sending them to a shared server. Selected identifiers are generally capped
+at 1,000 characters; selected XML/group display text is shortened with truncation.
+Numeric fields have finite/range checks (counts generally up to 1 trillion;
+HAR/k6 numeric values have absolute magnitude at most 1 quadrillion).
+
+References: [LCOV tracefile format](https://github.com/linux-test-project/lcov/blob/master/docs/man/geninfo.rst),
+[Cobertura usage](https://docs.gitlab.com/ci/testing/code_coverage/cobertura/),
+[HAR schema](https://github.com/ahmadnassri/har-schema),
+[k6 custom summaries](https://grafana.com/docs/k6/latest/results-output/end-of-test/custom-summary/), and
+[k6 machine-readable schema](https://github.com/grafana/k6-summary).
+
 Run the focused utility tests:
 
 ```powershell
@@ -802,7 +902,8 @@ SQL analysis, version comparison, lockfile comparison, advisory details,
 JSON Patch, structured logs, endpoint checks, commit checks, Dockerfile inspection,
 HTTP caching, Compose/Actions configuration, redirects, CORS, Fly configuration,
 environment key comparison, Kubernetes manifests, CycloneDX inventory, JUnit,
-SARIF, Prometheus metrics, and access logs, for a total of 55 authenticated tool
+SARIF, Prometheus metrics, access logs, LCOV/Cobertura coverage, HAR, and k6
+summaries, for a total of 59 authenticated tool
 calls. The new checks require deployment of
 the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;

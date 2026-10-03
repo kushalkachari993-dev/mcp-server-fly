@@ -58,6 +58,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "inspect_docker_compose", "inspect_github_actions", "inspect_redirect_chain", "inspect_http_cors",
                 "inspect_fly_config", "compare_env_keys", "inspect_kubernetes_manifest", "inspect_sbom",
                 "inspect_junit_report", "inspect_sarif_report", "inspect_prometheus_metrics", "analyze_access_logs",
+                "inspect_lcov_report", "inspect_cobertura_report", "inspect_har", "inspect_k6_summary",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -268,6 +269,24 @@ async def run_test(base_url: str, api_key: str) -> None:
                 lambda text: json.loads(text)["parsed_entries"] == 1
                 and json.loads(text)["paths"] == [{"method": "GET", "path": "/health", "count": 1}]
                 and json.loads(text)["total_reported_bytes"] == 12)
+            await check("inspect_lcov_report", {
+                "content": 'SF:app.py\nDA:1,2\nDA:2,0\nLF:2\nLH:1\nend_of_record\n'},
+                lambda text: json.loads(text)["observed_record_totals"]["lines"]["coverage_percent"] == 50
+                and json.loads(text)["files"][0]["uncovered_lines"] == [2])
+            await check("inspect_cobertura_report", {
+                "content": '<coverage><packages><package name="demo"><classes><class name="App" filename="app.py"><lines><line number="1" hits="2"/><line number="2" hits="0"/></lines></class></classes></package></packages></coverage>'},
+                lambda text: json.loads(text)["class_count"] == 1
+                and json.loads(text)["observed_class_lines"]["coverage_percent"] == 50)
+            await check("inspect_har", {
+                "content": '{"log":{"version":"1.2","entries":[{"request":{"method":"GET","url":"https://example.com/health?token=hidden"},"response":{"status":200,"bodySize":12},"time":25,"timings":{"wait":20,"receive":5}}]}}'},
+                lambda text: json.loads(text)["entry_count"] == 1
+                and json.loads(text)["entries"][0]["target"]["path"] == "/health"
+                and json.loads(text)["duration_ms"]["mean"] == 25)
+            await check("inspect_k6_summary", {
+                "content": '{"metrics":{"http_reqs":{"type":"counter","contains":"default","values":{"count":10,"rate":2},"thresholds":{"count>5":{"ok":true}}}},"state":{"testRunDurationMs":5000}}'},
+                lambda text: json.loads(text)["metric_count"] == 1
+                and json.loads(text)["duration_seconds"] == 5
+                and json.loads(text)["all_reported_thresholds_passed"] is True)
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 
