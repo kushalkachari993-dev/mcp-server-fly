@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 108 tools.
+The server registers 112 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -117,6 +117,10 @@ The server registers 108 tools.
 - `validate_csv_schema(csv_text, schema_json, required_columns_json, delimiter, limit)` - validate string-valued CSV row objects against JSON Schema and optional explicit required header names in a bounded offline worker.
 - `compare_csv_tables(before, after, key_columns_json, delimiter, limit)` - compare supplied CSV rows by explicit composite string keys, keeping duplicate/empty keys ambiguous and reporting column/cell changes offline.
 - `redact_csv_columns(csv_text, columns_json, delimiter, mask)` - replace every value in explicitly selected existing columns and return complete rewritten CSV with counts; unselected data remains unchanged.
+- `inspect_sql_schema(ddl, dialect, limit)` - inspect supplied supported CREATE TABLE declarations for columns, scalar types, explicit nullability and primary/unique/foreign keys without database access.
+- `compare_sql_schemas(before, after, dialect, limit)` - compare selected declarations in supplied SQL schema snapshots by qualified normalized identifiers; no rename guesses or migration safety verdict.
+- `transpile_sql(sql, source_dialect, target_dialect)` - translate supplied SQL between supported dialects, raising on known unsupported translations and returning complete SQL without executing it.
+- `extract_sql_lineage(sql, column, dialect, schema_json, limit)` - trace one SELECT output's static projection column dependencies through aliases/CTEs/set queries, keeping unresolved references explicit.
 
 Data utility examples
 ---------------------
@@ -1247,6 +1251,90 @@ References: [Python CSV](https://docs.python.org/3.12/library/csv.html),
 [jsonschema validation](https://python-jsonschema.readthedocs.io/en/stable/validate/), and
 [reference handling](https://python-jsonschema.readthedocs.io/en/stable/referencing/).
 
+SQL Development Tools
+---------------------
+
+```python
+inspect_sql_schema(ddl='CREATE TABLE users(id INT PRIMARY KEY, name TEXT NOT NULL)')
+compare_sql_schemas(before='CREATE TABLE users(id INT)', after='CREATE TABLE users(id BIGINT)')
+transpile_sql(sql='SELECT TOP 2 [id] FROM [users]', source_dialect='tsql', target_dialect='postgres')
+extract_sql_lineage(sql='WITH recent AS (SELECT id FROM users) SELECT id FROM recent', column='id')
+extract_sql_lineage(sql='SELECT * FROM users', column='id', schema_json='{"users":{"id":"INT","name":"TEXT"}}')
+```
+
+These four tools reuse SQLGlot; no dependencies, API keys or database credentials
+are added. Dialect names match `analyze_sql`: `postgres`, `mysql`, `sqlite`,
+`bigquery`, `snowflake`, `tsql`, `duckdb`, `redshift`, and `trino`.
+
+Schema inspection accepts explicit `CREATE TABLE` declarations with scalar
+types, optional numeric type parameters, `NULL`/`NOT NULL`, inline or table-level
+primary/unique/foreign keys, and DEFAULT/CHECK expressions. Named keys,
+composite key column order, UNIQUE nulls policy, referenced table/column names
+and supported foreign key actions/deferrability options are selected fields.
+Referenced columns omitted in SQL remain unspecified; referenced tables need
+not appear in the snapshot and are not validated. `declared_nullable: null`
+means no explicit NULL/NOT NULL clause, even on a primary key. It is not inferred
+database nullability. Types and identifiers use SQLGlot's dialect normalization,
+not a live database's type resolution, collation or search path.
+
+DEFAULT/CHECK expressions, values and comments are not returned or compared;
+only their counts are reported. Advanced constraints, identity/generated columns,
+complex/literal-valued types, CREATE modifiers/properties, indexes, ALTER,
+CREATE AS and migration scripts are rejected. Parsing still does not prove
+database validity. Names/type parameters can remain sensitive.
+
+Comparison matches qualified table identifier tuples, then column names. Quoted
+names containing dots do not collide with multipart names. Duplicate normalized
+table/column identities fail closed. Empty/whitespace strings represent empty
+comparison snapshots; inspection requires at least one CREATE TABLE. Table,
+column and constraint declaration order are ignored; key column order is not.
+Counts and `selected_fields_equal` use complete bounded inputs before display
+limits. Column change counts concern matched tables only. No rename inference,
+semantic schema equivalence, expression comparison or safe-migration verdict.
+
+Transpilation accepts 1-10 supported `analyze_sql` statement types with explicit
+source/target dialects. SQLGlot's known unsupported translations raise errors;
+unknown functions or other unrecognized incompatibilities may still survive.
+Each complete generated statement is parsed again using the target parser.
+This is not execution, database validation, type-sensitive schema inference or
+a guarantee of equivalent behavior. Comments are omitted, but SQL literals are
+preserved and may contain secrets. Oversized output fails instead of returning
+partial SQL. Test translated statements on the target database.
+
+Lineage accepts one SELECT/set query and one named output column (use aliases
+for expressions). It returns distinct source table/column references, unresolved
+references and full counts before `limit`. Optional `schema_json` uses SQLGlot's
+uniform nested mapping: `{table: {column: "type"}}`,
+`{schema: {table: {column: "type"}}}` or
+`{catalog: {schema: {table: {column: "type"}}}}`. Use dialect identifier quotes
+inside JSON keys for case-sensitive quoted names. Duplicate raw/normalized keys,
+mixed depths, non-string types, empty nested objects and nonfinite numbers fail.
+Metadata is a caller assertion, not introspection or proof of column existence.
+
+Without metadata, single-source columns can be inferred syntactically. Ambiguous
+columns, unknown qualifiers/unsupported struct references, qualification failures
+and unexpanded wildcards remain unresolved. Unknown qualifiers stop inference
+for the query; a qualification failure returns unknown rather than partial
+sources. Recursive/non-query CTEs, duplicate CTE names, correlated/lateral queries, pivots, table functions and
+SELECT INTO are unsupported. `column_references_resolved` describes direct
+projection column references only; constants/COUNT(*) may have no source columns.
+Joins, filters, row counts and control/row dependencies are not comprehensive
+lineage. SQL expressions, literals and comments are omitted from lineage output.
+
+Limits: 50,000 characters per input, 10,000 AST nodes and 100 nesting levels per
+parsed/qualified input, identifier lengths of 200 characters, 100,000 serialized
+output characters, and `limit` 1-50 (default 20) for result collections. Schema
+snapshots allow up to 50 tables, 100 columns per table and 1,000 total columns.
+Lineage metadata has the same table/column limits and a maximum of 3 table
+qualification levels. One isolated SQL worker per server process is shared
+with `analyze_sql`, with a 5-second timeout and POSIX CPU/memory limits. Workers
+are terminated/killed on timeout. Library diagnostics are sanitized to avoid
+echoing source values. No database, file or network access or SQL execution.
+
+References: [SQLGlot parsing/transpilation](https://sqlglot.com/sqlglot.html),
+[column lineage](https://sqlglot.com/sqlglot/lineage.html), and
+[schema mappings](https://sqlglot.com/sqlglot/schema.html).
+
 Run the focused utility tests:
 
 ```powershell
@@ -1273,8 +1361,9 @@ environment key comparison, Kubernetes manifests, CycloneDX inventory, JUnit,
 SARIF, Prometheus metrics, access logs, LCOV/Cobertura coverage, HAR, k6 summaries,
 coverage/JUnit/HAR/k6 report comparisons, GraphQL schema/operation analysis,
 Postman collection inspection, Compose/Kubernetes/Actions/Fly configuration
-comparisons and CSV profiling/schema validation/table comparison/column redaction,
-for a total of 75 authenticated tool
+comparisons, CSV profiling/schema validation/table comparison/column redaction,
+and SQL schema inspection/comparison, transpilation and column lineage,
+for a total of 79 authenticated tool
 calls. The new checks require deployment of
 the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;

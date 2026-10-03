@@ -63,6 +63,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "inspect_graphql_schema", "validate_graphql_operation", "compare_graphql_schemas", "inspect_postman_collection",
                 "compare_docker_compose", "compare_kubernetes_manifests", "compare_github_actions", "compare_fly_configs",
                 "profile_csv", "validate_csv_schema", "compare_csv_tables", "redact_csv_columns",
+                "inspect_sql_schema", "compare_sql_schemas", "transpile_sql", "extract_sql_lineage",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -368,6 +369,22 @@ async def run_test(base_url: str, api_key: str) -> None:
                 lambda text: json.loads(text)["replacement_count"] == 1
                 and json.loads(text)["csv"] == 'id,token\r\n001,[REDACTED]\r\n'
                 and "private-token" not in text)
+            await check("inspect_sql_schema", {"ddl": 'CREATE TABLE users(id INT PRIMARY KEY, name TEXT NOT NULL)'},
+                lambda text: json.loads(text)["tables"][0]["primary_key"]["columns"] == ["id"]
+                and json.loads(text)["column_count"] == 2)
+            await check("compare_sql_schemas", {
+                "before": 'CREATE TABLE users(id INT)', "after": 'CREATE TABLE users(id BIGINT)'},
+                lambda text: json.loads(text)["counts"]["changed_columns"] == 1
+                and json.loads(text)["selected_fields_equal"] is False)
+            await check("transpile_sql", {
+                "sql": 'SELECT TOP 2 [id] FROM [users]', "source_dialect": "tsql", "target_dialect": "postgres"},
+                lambda text: json.loads(text)["statement_count"] == 1
+                and "LIMIT 2" in json.loads(text)["statements"][0])
+            await check("extract_sql_lineage", {
+                "sql": 'WITH recent AS (SELECT id FROM users) SELECT id FROM recent', "column": "id"},
+                lambda text: json.loads(text)["column_references_resolved"] is True
+                and json.loads(text)["sources"][0]["table"]["identity"] == ["users"]
+                and json.loads(text)["sources"][0]["column"] == "id")
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 

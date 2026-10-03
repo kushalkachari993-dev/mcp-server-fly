@@ -2,7 +2,7 @@ import re
 
 import anyio
 
-from . import service
+from . import development, service
 
 
 _KEYWORDS = [
@@ -44,6 +44,65 @@ def _uppercase_keywords(sql: str) -> str:
 
 
 def register(mcp):
+
+    @mcp.tool()
+    async def inspect_sql_schema(ddl: str, dialect: str = "postgres", limit: int = 20) -> str:
+        """Inspect a supplied CREATE TABLE subset offline: scalar declared types,
+        explicit nullability, primary/unique/foreign keys, default/CHECK counts.
+        Expressions/literals are omitted; other constraints and CREATE modifiers
+        are rejected. Not a migration interpreter or database validity check.
+        Nine analyze_sql dialects; 50000 characters, 50 tables, 100 columns/table,
+        1000 columns total; limit 1-50, 100000 output characters, 5-second worker.
+        """
+        try:
+            return await anyio.to_thread.run_sync(development.run, "inspect", {"ddl": ddl, "dialect": dialect, "limit": limit})
+        except (ValueError, RecursionError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
+    async def compare_sql_schemas(before: str, after: str, dialect: str = "postgres", limit: int = 20) -> str:
+        """Compare supported supplied CREATE TABLE snapshots by normalized qualified
+        table and column identifiers. Complete bounded counts precede limit 1-50.
+        Compare selected types, explicit nullability and keys, not default/CHECK
+        expressions or declaration order. Empty strings represent empty snapshots.
+        No rename guesses or migration safety verdict. Same input/schema/worker
+        limits as inspect_sql_schema.
+        """
+        try:
+            return await anyio.to_thread.run_sync(development.run, "compare", {
+                "before": before, "after": after, "dialect": dialect, "limit": limit})
+        except (ValueError, RecursionError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
+    async def transpile_sql(sql: str, source_dialect: str, target_dialect: str) -> str:
+        """Translate up to 10 SQL statements between explicit analyze_sql dialects
+        with SQLGlot, raising on known unsupported translations. Return complete
+        target-parser-checked SQL without comments; literals are NOT redacted.
+        No execution or semantic equivalence guarantee. 50000 input characters,
+        100000 output characters and shared 5-second isolated SQL worker.
+        """
+        try:
+            return await anyio.to_thread.run_sync(development.run, "transpile", {
+                "sql": sql, "dialect": source_dialect, "target_dialect": target_dialect})
+        except (ValueError, RecursionError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
+    async def extract_sql_lineage(sql: str, column: str, dialect: str = "postgres", schema_json: str = "{}", limit: int = 20) -> str:
+        """Trace one named SELECT output's projection column dependencies through
+        aliases, CTEs and set queries. Optional schema JSON: {table:{column:type}},
+        optionally uniformly nested by schema/catalog; ambiguous columns and
+        wildcards without metadata remain unresolved. Not row/control/runtime
+        lineage; no recursive/DML CTE, correlated/lateral/pivot/table-function support.
+        50000 characters/input, 50 schema tables/1000 columns, limit 1-50,
+        100000 output characters, shared 5-second worker. Never execute SQL.
+        """
+        try:
+            return await anyio.to_thread.run_sync(development.run, "lineage", {
+                "sql": sql, "column": column, "dialect": dialect, "schema_json": schema_json, "limit": limit})
+        except (ValueError, RecursionError, OSError) as error:
+            return f"Error: {error}"
 
     @mcp.tool()
     async def analyze_sql(sql: str, dialect: str = "postgres") -> str:
