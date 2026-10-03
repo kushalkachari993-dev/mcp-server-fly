@@ -7,6 +7,8 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
+The server registers 72 tools.
+
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
 - `calculate(expression)` - safe math evaluation.
@@ -75,6 +77,10 @@ Available tools
 - `compare_versions(first, second, scheme)` - compare exact SemVer or Python PEP 440 versions.
 - `inspect_http_security_headers(url)` - summarize common security-related response headers on a public URL.
 - `get_github_commit(owner, repo, ref, max_files)` - read public commit metadata and changed-file summaries.
+- `compare_lockfiles(before, after, format, limit)` - compare resolved package versions in npm or Python lockfiles.
+- `get_vulnerability_details(advisory_id, max_affected, max_chars)` - read OSV affected ranges, fix events, and references.
+- `apply_json_patch(value, patch)` - apply JSON Patch operations to supplied JSON offline.
+- `analyze_jsonl_logs(content, limit, level_field, message_field, timestamp_field)` - summarize supplied structured logs offline.
 
 Data utility examples
 ---------------------
@@ -395,6 +401,64 @@ References: [GitHub workflow jobs](https://docs.github.com/en/rest/actions/workf
 [Python project metadata](https://packaging.python.org/en/latest/specifications/pyproject-toml/),
 [SemVer](https://semver.org/), and [PEP 440 version handling](https://packaging.pypa.io/en/stable/version.html).
 
+Release and troubleshooting examples
+-----------------------------------
+
+```text
+compare_lockfiles(before='{"lockfileVersion":3,"packages":{"node_modules/demo":{"version":"1.0.0"}}}', after='{"lockfileVersion":3,"packages":{"node_modules/demo":{"version":"2.0.0"}}}', format="package-lock.json")
+get_vulnerability_details(advisory_id="GHSA-jf85-cpcp-j695", max_affected=5)
+apply_json_patch(value='{"enabled":false}', patch='[{"op":"replace","path":"/enabled","value":true}]')
+analyze_jsonl_logs(content='{"level":"error","message":"Request failed","timestamp":"2026-01-01T12:00:00Z"}\n')
+```
+
+Lockfile comparison accepts the same formats as inspection and reads all records
+before summarizing changes, including those beyond inspection's 500-record return
+limit. npm identities include package paths; Python names are normalized and all
+recorded versions for a name are grouped, preserving repeated versions. Changes
+compare version strings, not version precedence. Sources, environment markers,
+hashes, and dependency flags are ignored. Records without resolved versions are
+counted under `unresolved` and set `complete` to false. `equal` describes resolved
+versions only. Each input allows 2,000,000 characters; `limit` returns 1-200 changes
+with full counts and up to 100 versions per change. Output is capped at 100,000
+characters and `truncated` marks omitted changes or versions.
+
+Advisory details use one public, host-pinned OSV request with the shared 1 MB
+download limit. It returns publication/withdrawal metadata, severity strings,
+affected packages, range events, version lists, and references. `fixed` events
+retain their range type: GIT events identify commits. They are not interpreted
+as compatible upgrade recommendations. References are listed without fetching.
+Bounds are 1-20 affected packages, 100-20,000 detail characters, 20 aliases and
+references, five severity/range entries, 20 events per range, and 50 listed
+versions per package. Shortened strings/arrays set `truncated`; output above
+100,000 characters returns an error requesting smaller limits.
+
+JSON Patch uses `jsonpatch` for RFC 6902 operations and `jsonpointer` for paths.
+The tool supports add/remove/replace/move/copy/test, escaped keys, array insertion
+and appending, and root replacement. Tests distinguish booleans from numbers,
+while integer and floating-point JSON numbers compare by value. Removing the
+document root returns an error; use replacement with null if desired. Errors
+include the failing operation number without a partial result. Only supplied
+JSON is transformed; no files or external APIs are modified. Each input/output
+allows 200,000 characters with at most 50 operations, 10,000 nodes, and 50 nesting
+levels. Resource limits are checked after every operation to bound copy growth.
+
+Log analysis reads supplied JSON object lines and reports level/error counts,
+frequent exact messages, malformed-line samples, and a UTC timestamp range.
+Field names are configurable top-level keys. Text levels are normalized to
+lowercase; warn/err/fatal map to warning/error/critical. Numeric levels are
+unknown because logging systems use different numeric scales. Only ISO datetime
+strings with explicit UTC offsets enter the time range; invalid/missing times
+are counted. Blank lines are counted separately. Input allows 1,000,000
+characters and 5,000 lines; each entry allows 200,000 characters, 1,000 nodes,
+and 20 nested levels. `limit` is 1-50 message/error/invalid samples, with totals
+covering every supplied line. At most 20 level groups and 1,000 message characters
+are returned; omissions set `truncated`. Output is capped at 100,000 characters.
+
+References: [OSV advisory API](https://google.github.io/osv.dev/get-v1-vulns/),
+[OSV range schema](https://ossf.github.io/osv-schema/),
+[JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902), and
+[JSON Lines](https://jsonlines.org/).
+
 Run the focused utility tests:
 
 ```powershell
@@ -414,7 +478,8 @@ It also fetches the Django weblog RSS feed and the Python statistics documentati
 to verify feed and table extraction, then checks the numeric, diff, and unit
 tools. The live suite also verifies PDF, public GitHub, OpenAPI, npm metadata,
 OSV advisories, GitHub workflow runs/jobs, JMESPath queries, dependency manifests,
-SQL analysis, and version comparison, for a total of 35
+SQL analysis, version comparison, lockfile comparison, advisory details,
+JSON Patch, and structured logs, for a total of 39
 authenticated tool calls. The new checks require deployment of the latest code.
 
 Configuration

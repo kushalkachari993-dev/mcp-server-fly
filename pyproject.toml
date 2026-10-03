@@ -26,6 +26,7 @@ dependencies = [
     "packaging>=26,<27",
     "semver>=3,<4",
     "sqlglot>=30,<31",
+    "jsonpatch>=1.33,<2",
 ]
 
 [tool.uv]

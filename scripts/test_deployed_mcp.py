@@ -53,6 +53,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "get_npm_package", "check_package_vulnerabilities",
                 "list_github_workflow_runs", "query_json_advanced",
                 "list_github_workflow_jobs", "inspect_dependency_manifest", "analyze_sql", "compare_versions",
+                "compare_lockfiles", "get_vulnerability_details", "apply_json_patch", "analyze_jsonl_logs",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -72,11 +73,15 @@ async def run_test(base_url: str, api_key: str) -> None:
             print("\nformat_json result:")
             print(_text_from_tool_result(json_result))
 
+            successful_calls = 2
+
             async def check(name, arguments, verify):
+                nonlocal successful_calls
                 result = await session.call_tool(name, arguments)
                 text = _text_from_tool_result(result)
                 if result.isError or text.startswith("Error:") or not verify(text):
                     raise RuntimeError(f"Tool test failed: {name}: {text}")
+                successful_calls += 1
                 print(f"PASS {name}: {text[:500]}")
                 return text
 
@@ -154,7 +159,7 @@ async def run_test(base_url: str, api_key: str) -> None:
             await check("get_npm_package", {"name": "@types/node"},
                         lambda text: json.loads(text)["name"] == "@types/node"
                         and bool(json.loads(text)["version"]))
-            await check("check_package_vulnerabilities", {
+            advisory_text = await check("check_package_vulnerabilities", {
                 "ecosystem": "npm", "name": "lodash", "version": "4.17.20", "limit": 3},
                 lambda text: bool(json.loads(text)["vulnerabilities"])
                 and json.loads(text)["name"] == "lodash")
@@ -177,7 +182,23 @@ async def run_test(base_url: str, api_key: str) -> None:
                         and json.loads(text)["statements"][0]["columns"] == ["id"])
             await check("compare_versions", {"first": "1.9.0", "second": "1.10.0", "scheme": "semver"},
                         lambda text: json.loads(text)["comparison"] == -1)
-            print("PASS: 35 authenticated tool calls returned correct results")
+            await check("compare_lockfiles", {
+                "before": '{"lockfileVersion":3,"packages":{"node_modules/demo":{"version":"1.0.0"}}}',
+                "after": '{"lockfileVersion":3,"packages":{"node_modules/demo":{"version":"2.0.0"}}}',
+                "format": "package-lock.json"},
+                lambda text: json.loads(text)["counts"]["changed"] == 1
+                and json.loads(text)["changes"][0]["after_versions"] == ["2.0.0"])
+            advisory_id = json.loads(advisory_text)["vulnerabilities"][0]["id"]
+            await check("get_vulnerability_details", {"advisory_id": advisory_id, "max_affected": 2},
+                        lambda text: json.loads(text)["id"] == advisory_id and bool(json.loads(text)["affected"]))
+            await check("apply_json_patch", {
+                "value": '{"enabled":false}',
+                "patch": '[{"op":"replace","path":"/enabled","value":true}]'},
+                lambda text: json.loads(text) == {"enabled": True})
+            await check("analyze_jsonl_logs", {
+                "content": '{"level":"error","message":"failed","timestamp":"2026-01-01T12:00:00Z"}\n'},
+                lambda text: json.loads(text)["error_count"] == 1 and json.loads(text)["parsed_entries"] == 1)
+            print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 
 def main() -> None:
