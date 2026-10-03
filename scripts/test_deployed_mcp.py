@@ -59,6 +59,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "inspect_fly_config", "compare_env_keys", "inspect_kubernetes_manifest", "inspect_sbom",
                 "inspect_junit_report", "inspect_sarif_report", "inspect_prometheus_metrics", "analyze_access_logs",
                 "inspect_lcov_report", "inspect_cobertura_report", "inspect_har", "inspect_k6_summary",
+                "compare_coverage_reports", "compare_junit_reports", "compare_har_reports", "compare_k6_summaries",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -287,6 +288,26 @@ async def run_test(base_url: str, api_key: str) -> None:
                 lambda text: json.loads(text)["metric_count"] == 1
                 and json.loads(text)["duration_seconds"] == 5
                 and json.loads(text)["all_reported_thresholds_passed"] is True)
+            await check("compare_coverage_reports", {
+                "before": 'SF:app.py\nDA:1,1\nend_of_record\n',
+                "after": 'SF:app.py\nDA:1,0\nend_of_record\n'},
+                lambda text: json.loads(text)["matching"]["matched_count"] == 1
+                and json.loads(text)["line_change_counts"]["newly_uncovered_lines"] == 1)
+            await check("compare_junit_reports", {
+                "before": '<testsuite name="demo"><testcase name="test" classname="App" time="1"/></testsuite>',
+                "after": '<testsuite name="demo"><testcase name="test" classname="App" time="2"><failure/></testcase></testsuite>'},
+                lambda text: json.loads(text)["newly_failing_count"] == 1
+                and json.loads(text)["comparisons"][0]["duration_seconds"]["delta"] == 1)
+            await check("compare_har_reports", {
+                "before": '{"log":{"version":"1.2","entries":[{"request":{"method":"GET","url":"https://example.com/health"},"response":{"status":200},"time":10}]}}',
+                "after": '{"log":{"version":"1.2","entries":[{"request":{"method":"GET","url":"https://example.com/health"},"response":{"status":500},"time":20}]}}'},
+                lambda text: json.loads(text)["matching"]["matched_count"] == 1
+                and json.loads(text)["comparisons"][0]["duration_ms"]["mean"]["delta"] == 10)
+            await check("compare_k6_summaries", {
+                "before": '{"metrics":{"latency":{"type":"trend","contains":"time","values":{"p(95)":20},"thresholds":{"p(95)<30":{"ok":true}}}}}',
+                "after": '{"metrics":{"latency":{"type":"trend","contains":"time","values":{"p(95)":40},"thresholds":{"p(95)<30":{"ok":false}}}}}'},
+                lambda text: json.loads(text)["newly_failing_threshold_count"] == 1
+                and json.loads(text)["metric_comparisons"][0]["values"][0]["delta"] == 20)
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 

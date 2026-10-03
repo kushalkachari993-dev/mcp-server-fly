@@ -47,7 +47,7 @@ def _stats(values):
             "mean": statistics.fmean(values) if values else None, "median": statistics.median(values) if values else None}
 
 
-def _har_url(value, summary):
+def _har_url(value, summary, path_maximum=1000):
     if not isinstance(value, str) or len(value) > 10000 or any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise ValueError("HAR URLs must be strings of at most 10000 characters without controls")
     try:
@@ -55,7 +55,7 @@ def _har_url(value, summary):
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             return {"supported": False, "scheme": None, "host": None, "port": None, "path": None}
         return {"supported": True, "scheme": parsed.scheme, "host": _name(parsed.hostname, required=True),
-                "port": parsed.port, "path": summary.text(parsed.path or "/")}
+                "port": parsed.port, "path": summary.text(parsed.path or "/", path_maximum)}
     except ValueError as error:
         raise ValueError("Invalid or unsupported HAR URL fields; source text omitted") from error
 
@@ -65,7 +65,7 @@ def _har_size(value):
     return None if value == -1 else value
 
 
-def inspect_har(content, limit):
+def inspect_har(content, limit, *, _records=None):
     summary = _Summary(content, limit)
     data = _json_report(content)
     log = _mapping(data.get("log"))
@@ -84,7 +84,7 @@ def inspect_har(content, limit):
         method = _name(request.get("method"), required=True)
         if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}", method):
             raise ValueError("Invalid HAR HTTP method token")
-        target = _har_url(request.get("url"), summary)
+        target = _har_url(request.get("url"), summary, 10000 if _records is not None else 1000)
         status = _integer(response.get("status"))
         if status is None or status != 0 and not 100 <= status <= 599:
             raise ValueError("HAR status must be 0 or 100-599")
@@ -118,6 +118,8 @@ def inspect_har(content, limit):
         rows.append({"index": index, "method": method, "target": target, "status": status, "time_ms": duration,
                      "timings_ms": stages, "started_at": started.isoformat() if started else None,
                      "mime_type": mime, "response_body_size": body_size, "response_content_size": content_size})
+    if _records is not None:
+        _records.extend(rows)
     slowest = sorted((row for row in rows if row["time_ms"] is not None), key=lambda row: row["time_ms"], reverse=True)
     errors = [row for row in rows if row["status"] == 0 or row["status"] >= 400]
     output = {"version": "1.2", "entry_count": len(rows), "page_count": len(pages), "status_counts": dict(sorted(status_counts.items())),
@@ -162,7 +164,7 @@ def _metric_values(raw, kind, variant):
     return output
 
 
-def inspect_k6(content, limit):
+def inspect_k6(content, limit, *, _records=None):
     summary = _Summary(content, limit)
     data = _json_report(content)
     checks_raw, sources = [], []
@@ -257,6 +259,8 @@ def inspect_k6(content, limit):
     passed = sum(row["ok"] is True for row in thresholds)
     failed = sum(row["ok"] is False for row in thresholds)
     unknown = sum(row["ok"] is None for row in thresholds)
+    if _records is not None:
+        _records.update(metrics=metrics_out, thresholds=thresholds)
     output = {"format": variant, "schema_version": data.get("version"), "metadata": metadata, "duration_seconds": duration_seconds,
               "metric_count": len(metrics_out), "type_counts": dict(sorted(types.items())), "metrics": summary.take(metrics_out),
               "threshold_count": len(thresholds), "threshold_counts": {"passed": passed, "failed": failed, "unknown": unknown},

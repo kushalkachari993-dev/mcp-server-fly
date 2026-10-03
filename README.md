@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 92 tools.
+The server registers 96 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -101,6 +101,10 @@ The server registers 92 tools.
 - `inspect_cobertura_report(content, limit)` - inspect supplied Cobertura XML rates, direct class line/branch observations, and least-covered classes offline.
 - `inspect_har(content, limit)` - inspect supplied HAR 1.2 request statuses, slow requests, query-free targets, timings, and response sizes offline.
 - `inspect_k6_summary(content, limit)` - inspect supplied legacy or version 1.0.0 machine-readable k6 summaries, explicit thresholds, and individual checks offline.
+- `compare_coverage_reports(before, after, format, limit)` - compare observed LCOV or Cobertura coverage, report identities, and line-number hit transitions offline.
+- `compare_junit_reports(before, after, limit)` - compare matched JUnit test outcomes and durations, keeping duplicate or missing identities ambiguous.
+- `compare_har_reports(before, after, limit)` - compare grouped sanitized HAR request targets, timing observations, status counts, and reported response sizes offline.
+- `compare_k6_summaries(before, after, limit)` - compare compatible k6 metric values and explicit threshold results without evaluating expressions or guessing units.
 
 Data utility examples
 ---------------------
@@ -879,6 +883,96 @@ References: [LCOV tracefile format](https://github.com/linux-test-project/lcov/b
 [k6 custom summaries](https://grafana.com/docs/k6/latest/results-output/end-of-test/custom-summary/), and
 [k6 machine-readable schema](https://github.com/grafana/k6-summary).
 
+Report comparison examples
+--------------------------
+
+```text
+compare_coverage_reports(before='SF:app.py\nDA:1,1\nend_of_record\n', after='SF:app.py\nDA:1,0\nend_of_record\n')
+compare_coverage_reports(before='<coverage/>', after='<coverage/>', format='cobertura')
+compare_junit_reports(before='<testsuite name="demo"><testcase name="test" classname="App" time="1"/></testsuite>', after='<testsuite name="demo"><testcase name="test" classname="App" time="2"><failure/></testcase></testsuite>')
+compare_har_reports(before='{"log":{"version":"1.2","entries":[{"request":{"method":"GET","url":"https://example.com/health"},"response":{"status":200},"time":10}]}}', after='{"log":{"version":"1.2","entries":[{"request":{"method":"GET","url":"https://example.com/health"},"response":{"status":500},"time":20}]}}')
+compare_k6_summaries(before='{"metrics":{"latency":{"type":"trend","contains":"time","values":{"p(95)":20},"thresholds":{"p(95)<30":{"ok":true}}}}}', after='{"metrics":{"latency":{"type":"trend","contains":"time","values":{"p(95)":40},"thresholds":{"p(95)<30":{"ok":false}}}}}')
+```
+
+These four tools compare supplied **before/after reports**, not filenames or URLs.
+They reuse the existing inspector parsers and inspect all bounded records before
+limiting output, including passing tests and records beyond the first 50 rows.
+No new dependencies or API keys are required; no network requests, source-file
+access, test execution, load generation or threshold evaluation is performed.
+Each input is capped at 200,000 characters and retains its inspector's record,
+depth and numeric limits. Combined output is capped at 100,000 characters;
+`limit` defaults to 20 and accepts 1-50 rows per returned list. Large results
+return an error requesting smaller reports/limits. `truncated` marks shortened
+output, while counts include omitted rows. Errors omit report snippets.
+
+`matching` reports matched, added, removed, ambiguous and unmatchable counts.
+Repeated identities on either side remain ambiguous, even if absent on the other
+side; they are never paired by position or silently merged. Missing or unsupported
+identity fields are counted as unmatchable, not invented identities. Added/removed
+means present only in one supplied report, not proof that a file, test, endpoint or
+metric was really created/deleted. Ordinary numeric changes use `delta = after -
+before`, with `relative_percent = delta / abs(before) * 100`. Missing/incompatible
+measurements have null deltas and explicit reasons where applicable; zero
+baselines or out-of-range ratios give null relative percentages. Empty reports
+and missing values do not imply success, measured zero or complete coverage.
+
+Coverage accepts two reports in the same selected `lcov` (default) or `cobertura`
+format. LCOV matches exact `(file, test_name)` sections; Cobertura matches exact
+`(file, package, class)` with nonempty package/class names of at most 1,000
+characters without controls. Paths are not normalized or resolved. Coverage
+changes use observed totals and record counts, not declared rates. Percentage
+changes are **percentage points**, not relative percentages. Unknown hit/branch
+counts prevent complete deltas; LCOV legacy/grouped function-format changes and
+mixed-format aggregate function totals are not directly compared. Repeated sections/classes remain
+separate in aggregate observations, not deduplicated unique-file coverage.
+`newly_uncovered_lines` requires the same observed line number to change from
+positive hits to zero in a matched record; the reverse is `newly_covered_lines`.
+Added/removed lines and uncovered added lines are separate. No line-number mapping
+across revisions occurs: the caller must ensure source/test comparability.
+
+JUnit matches exact suite ancestry, classname and test name; classname may be
+absent, but suite/test names must be nonempty. Identity components exceeding
+1,000 characters or containing controls are unmatchable. `newly_failing_tests`
+means passed to failed/error; `recovered_tests` means failed/error to passed.
+Unmarked cases use the inspector's passed outcome; vendor retry/flaky extensions
+are not interpreted. Skipped transitions are separate outcome changes. Mixed markers retain inspector
+precedence but are marked uncertain and excluded from new failure/recovery counts.
+Duration deltas are reported testcase seconds, not wall time or proof of a runtime
+regression/flakiness. Failure bodies/messages, properties and stdout/stderr are
+omitted. Parser aggregate declarations remain separate from observed cases.
+
+HAR accepts version 1.2 and groups HTTP/HTTPS entries by method, scheme, parsed
+lowercase host, effective port and exact full path. Omitted ports normalize to
+80/443. Queries/fragments and userinfo are removed, so different queries
+intentionally merge; percent-escapes are not decoded. Paths are matched before
+being shortened to 1,000 characters for display. Unsupported URL schemes are
+counted but not compared; repeated requests form aggregate groups rather than
+one-to-one pairs. Each matched group compares available duration min/max/mean/
+median in milliseconds, sample/missing counts, status counts (including distinct
+status `0`), and reported body/content sizes. Missing sizes prevent complete
+total-size deltas. Headers, cookies, bodies, redirect values, page metadata and
+comments are omitted, but returned hosts/paths may still contain sensitive data.
+Differences do not establish identical requests, comparable workloads, statistical
+significance, causal regressions or total wire traffic.
+
+k6 accepts the same flat legacy or machine-readable version `1.0.0` JSON shapes
+as `inspect_k6_summary`. Metrics match exact source/name; numeric fields match
+exact keys. Numeric deltas require the same summary format, metric type and known
+`contains` dimension. Missing/changed dimensions, types or values and cross-format
+comparisons yield unknown deltas instead of unit guesses or translated field keys.
+Tagged metrics and separate check metrics remain distinct sources; statistics,
+rates and percentiles are not recomputed or summed. The caller must ensure actual
+units, scripts, load and environments are comparable. Thresholds match exact
+source/metric/expression and compare only explicit compatible boolean results.
+Missing/empty/unknown threshold information is not pass, and expressions are never
+evaluated. Individual check counts remain before/after reported overviews, not
+paired assertions. Setup data/options/script paths are omitted. Numeric or
+threshold changes do not prove production capacity or a causal regression.
+
+Names, coverage paths, HAR hosts/paths, metric keys and threshold expressions can
+still contain sensitive caller-supplied data. Sanitize reports before sending
+them to a shared server; selected-field omission is not blanket redaction.
+
 Run the focused utility tests:
 
 ```powershell
@@ -902,8 +996,8 @@ SQL analysis, version comparison, lockfile comparison, advisory details,
 JSON Patch, structured logs, endpoint checks, commit checks, Dockerfile inspection,
 HTTP caching, Compose/Actions configuration, redirects, CORS, Fly configuration,
 environment key comparison, Kubernetes manifests, CycloneDX inventory, JUnit,
-SARIF, Prometheus metrics, access logs, LCOV/Cobertura coverage, HAR, and k6
-summaries, for a total of 59 authenticated tool
+SARIF, Prometheus metrics, access logs, LCOV/Cobertura coverage, HAR, k6 summaries,
+and coverage/JUnit/HAR/k6 report comparisons, for a total of 63 authenticated tool
 calls. The new checks require deployment of
 the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;

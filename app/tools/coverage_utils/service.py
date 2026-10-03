@@ -67,7 +67,7 @@ def _lcov_record(record, summary, index):
             "excluded_branch_count": len(record["branches"]) - len(branches)}
 
 
-def inspect_lcov(content, limit):
+def inspect_lcov(content, limit, *, _records=None):
     summary = _Summary(content, limit)
     rows, paths, ignored = [], set(), Counter()
     record, pending_test = None, None
@@ -77,7 +77,10 @@ def inspect_lcov(content, limit):
         if line == "end_of_record":
             if record is None:
                 raise ValueError("LCOV end_of_record has no open section")
-            rows.append(_lcov_record(record, summary, len(rows)))
+            row = _lcov_record(record, summary, len(rows))
+            rows.append(row)
+            if _records is not None:
+                _records.append({**record, "observed": row["observed"], "function_format": row["function_format"]})
             record = None
             continue
         key, separator, value = line.partition(":")
@@ -231,7 +234,7 @@ def _condition_counts(value):
     return found, hit
 
 
-def inspect_cobertura(content, limit):
+def inspect_cobertura(content, limit, *, _records=None):
     summary = _Summary(content, limit)
     root = _cobertura_root(content)
     namespace = root.tag[:root.tag.rfind("}") + 1] if root.tag.startswith("{") else ""
@@ -275,6 +278,10 @@ def inspect_cobertura(content, limit):
                             "observed_branches": _coverage(branch_found, branch_hit, unknown_branches),
                             "branch_line_count": branch_lines, "uncovered_line_count": len(uncovered),
                             "uncovered_lines": summary.take(uncovered)})
+            if _records is not None:
+                _records.append({"file": filename, "package": package.get("name"), "class": cls.get("name"),
+                                 "lines": lines, "observed": {"lines": classes[-1]["observed_lines"],
+                                                              "branches": classes[-1]["observed_branches"]}})
     measured = [row for row in classes if row["observed_lines"]["coverage_percent"] is not None]
     output = {"package_count": len(packages), "class_count": len(classes), "unique_file_count": len(files),
               "declared": _xml_declared(root),

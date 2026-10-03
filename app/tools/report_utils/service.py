@@ -103,7 +103,7 @@ def _junit_root(content):
     return root
 
 
-def inspect_junit(content, limit):
+def inspect_junit(content, limit, *, _records=None):
     summary = _Summary(content, limit)
     root = _junit_root(content)
     namespace = root.tag[:root.tag.rfind("}") + 1] if root.tag.startswith("{") else ""
@@ -113,12 +113,12 @@ def inspect_junit(content, limit):
     def tag(element):
         return element.tag[len(namespace):] if element.tag.startswith(namespace) else ""
 
-    def visit(element, parent=None):
+    def visit(element, parent=None, suite_path=()):
         nonlocal mixed
         if tag(element) == "testsuites":
             for child in element:
                 if tag(child) in {"testsuite", "testsuites"}:
-                    visit(child, parent)
+                    visit(child, parent, suite_path)
             return
         index = len(suites)
         if index >= 1000:
@@ -133,9 +133,10 @@ def inspect_junit(content, limit):
                  "declared_counts": declared, "declared_time_seconds": _duration(element.get("time")),
                  "observed_direct_test_count": 0}
         suites.append(suite)
+        suite_path = (*suite_path, element.get("name"))
         for child in element:
             if tag(child) == "testsuite":
-                visit(child, index)
+                visit(child, index, suite_path)
             elif tag(child) == "testcase":
                 if len(tests) >= 2000:
                     raise ValueError("JUnit report exceeds 2000 test cases")
@@ -149,6 +150,10 @@ def inspect_junit(content, limit):
                               "classname": summary.text(child.get("classname")), "outcome": outcome,
                               "time_seconds": _duration(child.get("time")), "markers": dict(markers),
                               "diagnostics": summary.take(diagnostics, 5)})
+                if _records is not None:
+                    _records.append({"suite_path": suite_path, "classname": child.get("classname"),
+                                     "name": child.get("name"), "outcome": outcome,
+                                     "time_seconds": tests[-1]["time_seconds"], "mixed": len(markers) > 1})
                 suite["observed_direct_test_count"] += 1
                 outcomes[outcome] += 1
     visit(root)
