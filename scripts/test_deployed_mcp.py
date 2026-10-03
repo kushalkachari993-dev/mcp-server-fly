@@ -55,6 +55,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "list_github_workflow_jobs", "inspect_dependency_manifest", "analyze_sql", "compare_versions",
                 "compare_lockfiles", "get_vulnerability_details", "apply_json_patch", "analyze_jsonl_logs",
                 "check_http_endpoints", "get_github_commit_checks", "inspect_dockerfile", "inspect_http_cache",
+                "inspect_docker_compose", "inspect_github_actions", "inspect_redirect_chain", "inspect_http_cors",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -216,6 +217,21 @@ async def run_test(base_url: str, api_key: str) -> None:
             await check("inspect_http_cache", {"url": "https://example.com"},
                         lambda text: json.loads(text)["http_status"] == 200
                         and {"browser", "shared"} == set(json.loads(text)["scopes"]))
+            await check("inspect_docker_compose", {
+                "content": 'services:\n  web:\n    image: nginx:stable\n    ports: ["8080:80"]\n    environment: {MODE: production}\n'},
+                lambda text: json.loads(text)["service_count"] == 1
+                and json.loads(text)["services"][0]["environment_names"] == ["MODE"])
+            await check("inspect_github_actions", {
+                "content": 'on: [push, pull_request]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n'},
+                lambda text: [event["name"] for event in json.loads(text)["events"]] == ["push", "pull_request"]
+                and json.loads(text)["jobs"][0]["steps"][0]["uses"] == "actions/checkout@v4")
+            await check("inspect_redirect_chain", {"url": "https://example.com"},
+                        lambda text: json.loads(text)["completed"] and json.loads(text)["http_status"] == 200
+                        and bool(json.loads(text)["hops"]))
+            await check("inspect_http_cors", {"url": "https://example.com", "origin": "https://app.example"},
+                        lambda text: json.loads(text)["origin"] == "https://app.example"
+                        and json.loads(text)["get"]["http_status"] == 200
+                        and isinstance(json.loads(text)["preflight"]["cors_allows_anonymous"], bool))
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 

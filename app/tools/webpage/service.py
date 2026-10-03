@@ -36,7 +36,7 @@ def _public_destination(url: str):
 
 
 def request_public(url: str, *, method="GET", headers=None, body=None, timeout_seconds=25,
-                   allowed_host=None):
+                   allowed_host=None, follow_redirects=True):
     deadline = time.monotonic() + timeout_seconds
     url = url.strip()
     headers = dict(headers or {})
@@ -76,7 +76,7 @@ def request_public(url: str, *, method="GET", headers=None, body=None, timeout_s
                 preload_content=False,
                 timeout=urllib3.Timeout(connect=min(5, remaining), read=min(5, remaining)),
             )
-            if response.status in _REDIRECT_CODES:
+            if follow_redirects and response.status in _REDIRECT_CODES:
                 location = response.headers.get("Location")
                 if not location:
                     raise ValueError("Redirect response did not include a destination")

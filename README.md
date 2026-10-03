@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 76 tools.
+The server registers 80 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -85,6 +85,10 @@ The server registers 76 tools.
 - `get_github_commit_checks(owner, repo, ref, limit)` - read public CI check runs and legacy statuses for one resolved commit SHA.
 - `inspect_dockerfile(content)` - summarize supplied Dockerfile stages and declared runtime settings without building.
 - `inspect_http_cache(url)` - separate browser/shared-cache response directives and report conflicting or malformed settings.
+- `inspect_docker_compose(content, limit)` - summarize supplied Compose services, ports, dependency links, and health declarations offline.
+- `inspect_github_actions(content, limit, max_steps)` - summarize supplied workflow triggers, permissions, runners, and action references offline.
+- `inspect_redirect_chain(url)` - trace public redirect hops, loops, partial errors, and HTTPS downgrades.
+- `inspect_http_cors(url, origin, requested_method, requested_headers_json)` - inspect anonymous response and preflight CORS declarations.
 
 Data utility examples
 ---------------------
@@ -530,6 +534,84 @@ References: [GitHub check runs](https://docs.github.com/en/rest/checks/runs#list
 [dockerfile-parse](https://github.com/containerbuildsystem/dockerfile-parse), and
 [HTTP caching](https://datatracker.ietf.org/doc/html/rfc9111).
 
+Configuration and integration examples
+--------------------------------------
+
+```text
+inspect_docker_compose(content='services:\n  web:\n    image: nginx:stable\n    ports: ["8080:80"]\n')
+inspect_github_actions(content='on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n')
+inspect_redirect_chain(url="https://example.com")
+inspect_http_cors(url="https://example.com", origin="https://app.example", requested_method="GET", requested_headers_json='["X-Request-ID"]')
+```
+
+The configuration tools read supplied YAML only. No files, images, referenced
+workflows, or network resources are accessed; no commands are executed. The safe
+loader preserves `on`, `yes`, and `no` as text, recognizes only true/false as
+implicit booleans, and avoids sexagesimal integers such as unquoted `22:22`.
+Leading-zero decimal numbers use decimal interpretation. Dates remain strings.
+Duplicate/non-string keys, unknown/unsafe tags, multiple documents, non-finite
+numbers, recursive aliases, and excessive alias/merge expansion are rejected.
+Normal aliases and merge keys are supported. This restricted scalar handling is
+not a claim of full YAML 1.2 or vendor-schema validation. Parse errors report
+locations without echoing source snippets.
+
+Compose output includes service images/build paths, short/long port declarations,
+dependency conditions, environment-variable names, health-check forms/timing,
+and top-level network/volume/secret/config names. It reports dependency cycles
+and unknown service references without deciding whether deployment is valid.
+Environment values, build arguments, commands, and health-check command bodies
+are omitted. Variables, includes, extends, profiles, and override files are not
+resolved; listed settings are declarations, not effective runtime settings.
+
+Workflow output includes event names, common branch/path/type filters, schedules,
+input/secret names, declared workflow/job permissions, runner expressions,
+job dependencies, matrix axis names, step counts, and action/reusable-workflow
+references. Environment values, run bodies, with arguments, and secret values
+are omitted. Expressions and matrices are not expanded, referenced workflows are
+not fetched, and repository permission defaults are not inferred. Cycle and
+unknown-dependency observations cover all declared jobs, including omitted rows.
+
+Both YAML tools accept up to 200,000 input characters, 10,000 expanded YAML nodes
+(including keys), 50 nesting levels, and 100 services/jobs. `limit` returns 1-50
+services/jobs. Workflows allow 1,000 total steps, with `max_steps` returning 1-50
+per job. Returned text is capped at 2,000 characters per value; shortening and
+row omissions set `truncated`. Selected declaration lists allow 100 entries.
+
+Redirect tracing uses HEAD, falling back to GET on 405/501. It follows at most
+three redirects and reports up to four successfully observed URL responses.
+`redirect_responses` includes an un-followed final redirect; `followed_redirects`
+counts transitions with an observed next response. Loops, missing/invalid
+locations, the hop limit, and network failures retain a partial trace and an
+`error`. `final_url` is the last observed response, not an unrequested target.
+Every requested hop uses the shared IP-pinned public transport. Private targets,
+credentials in URLs, and ports other than 80/443 are blocked. URLs/locations are
+limited to 4,096 characters. No cookies, authorization headers, or bodies are sent.
+
+CORS inspection sends OPTIONS preflight metadata and an independent anonymous
+GET to the same public URL, without following redirects. `requested_method`
+defaults to GET and is never executed; even DELETE or POST only appears in
+Access-Control-Request-Method. `requested_headers_json` holds up to 20 header
+names of 100 characters each, not values; no authentication/cookies are sent.
+The supplied origin is normalized from an HTTP/HTTPS origin (any valid port) or
+the opaque origin `null`. Origin hosts are metadata and are never fetched.
+Output separates anonymous and credentialed declarations, checks preflight
+status/method/header matching, and handles wildcard/Authorization exceptions.
+GET is not verification of another requested method/header combination. These
+are header observations, not a browser test, authorization assessment, or proof
+of safety; browser safelisted header values are not modeled. Up to 100 tokens
+per response header list and 16,000 characters per selected response header are
+inspected; raw returned headers are capped at 2,000 characters with truncation.
+
+Both HTTP tools share a 25-second total request budget per call; blocking DNS
+resolution can exceed it. Each response is capped at 1 MB. All four tools cap
+output at 100,000 characters. This batch needs no new dependencies or API keys.
+
+References: [Compose services](https://docs.docker.com/reference/compose-file/services/),
+[GitHub workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax),
+[PyYAML](https://pyyaml.org/wiki/PyYAMLDocumentation),
+[HTTP redirects](https://datatracker.ietf.org/doc/html/rfc9110#section-15.4), and
+[CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS).
+
 Run the focused utility tests:
 
 ```powershell
@@ -551,7 +633,7 @@ tools. The live suite also verifies PDF, public GitHub, OpenAPI, npm metadata,
 OSV advisories, GitHub workflow runs/jobs, JMESPath queries, dependency manifests,
 SQL analysis, version comparison, lockfile comparison, advisory details,
 JSON Patch, structured logs, endpoint checks, commit checks, Dockerfile inspection,
-and HTTP caching, for a total of 43
+HTTP caching, Compose/Actions configuration, redirects, and CORS, for a total of 47
 authenticated tool calls. The new checks require deployment of the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;
 loopback/private base URLs cannot pass that outbound check.
