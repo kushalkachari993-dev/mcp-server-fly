@@ -56,6 +56,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "compare_lockfiles", "get_vulnerability_details", "apply_json_patch", "analyze_jsonl_logs",
                 "check_http_endpoints", "get_github_commit_checks", "inspect_dockerfile", "inspect_http_cache",
                 "inspect_docker_compose", "inspect_github_actions", "inspect_redirect_chain", "inspect_http_cors",
+                "inspect_fly_config", "compare_env_keys", "inspect_kubernetes_manifest", "inspect_sbom",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -232,6 +233,22 @@ async def run_test(base_url: str, api_key: str) -> None:
                         lambda text: json.loads(text)["origin"] == "https://app.example"
                         and json.loads(text)["get"]["http_status"] == 200
                         and isinstance(json.loads(text)["preflight"]["cors_allows_anonymous"], bool))
+            await check("inspect_fly_config", {
+                "content": 'app = "demo"\n[http_service]\ninternal_port = 8000\nauto_stop_machines = "stop"\nauto_start_machines = true\n'},
+                lambda text: json.loads(text)["app"] == "demo"
+                and json.loads(text)["services"][0]["auto_stop_machines"] == "stop")
+            await check("compare_env_keys", {
+                "template": 'TOKEN=\nPORT=8000\n', "available_keys_json": '["TOKEN"]'},
+                lambda text: json.loads(text)["missing"] == ["PORT"]
+                and json.loads(text)["matched"] == ["TOKEN"])
+            await check("inspect_kubernetes_manifest", {
+                "content": 'apiVersion: v1\nkind: Pod\nmetadata: {name: demo}\nspec:\n  containers: [{name: web, image: nginx:stable}]\n'},
+                lambda text: json.loads(text)["object_count"] == 1
+                and json.loads(text)["objects"][0]["pod"]["containers"][0]["image"] == "nginx:stable")
+            await check("inspect_sbom", {
+                "content": '{"bomFormat":"CycloneDX","specVersion":"1.7","components":[{"type":"library","name":"demo","version":"1.0.0","bom-ref":"demo"}]}'},
+                lambda text: json.loads(text)["component_count"] == 1
+                and json.loads(text)["components"][0]["version"] == "1.0.0")
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 

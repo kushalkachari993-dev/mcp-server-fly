@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 80 tools.
+The server registers 84 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -89,6 +89,10 @@ The server registers 80 tools.
 - `inspect_github_actions(content, limit, max_steps)` - summarize supplied workflow triggers, permissions, runners, and action references offline.
 - `inspect_redirect_chain(url)` - trace public redirect hops, loops, partial errors, and HTTPS downgrades.
 - `inspect_http_cors(url, origin, requested_method, requested_headers_json)` - inspect anonymous response and preflight CORS declarations.
+- `inspect_fly_config(content)` - inspect supplied fly.toml services, ports, checks, machine settings, and autostart/autostop declarations offline.
+- `compare_env_keys(template, available_keys_json)` - compare dotenv template names with supplied environment key names without returning values.
+- `inspect_kubernetes_manifest(content, limit)` - summarize supplied Kubernetes workloads, Services, probes, resource declarations, and secret references offline.
+- `inspect_sbom(content, limit)` - inspect supplied CycloneDX JSON component inventory, declared licenses, and dependency relationships offline.
 
 Data utility examples
 ---------------------
@@ -612,6 +616,85 @@ References: [Compose services](https://docs.docker.com/reference/compose-file/se
 [HTTP redirects](https://datatracker.ietf.org/doc/html/rfc9110#section-15.4), and
 [CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS).
 
+Deployment readiness and inventory examples
+------------------------------------------
+
+```text
+inspect_fly_config(content='app = "demo"\n[http_service]\ninternal_port = 8000\nauto_stop_machines = "stop"\nauto_start_machines = true\nmin_machines_running = 0\n')
+compare_env_keys(template='MCP_API_KEY=\nPORT=8000\n', available_keys_json='["MCP_API_KEY"]')
+inspect_kubernetes_manifest(content='apiVersion: v1\nkind: Pod\nmetadata: {name: demo}\nspec:\n  containers: [{name: web, image: nginx:stable}]\n')
+inspect_sbom(content='{"bomFormat":"CycloneDX","specVersion":"1.7","components":[{"type":"library","name":"demo","version":"1.0.0","bom-ref":"demo"}],"dependencies":[{"ref":"demo","dependsOn":[]}]}')
+```
+
+These four tools operate only on supplied text, without file/network access,
+cloud credentials, command execution, or changes to deployments. Results are
+declarations, not verified live state or proof that a deployment is valid.
+
+Fly inspection accepts TOML and reports app/region, environment and process names,
+selected build/deploy settings, HTTP and additional services, ports/ranges,
+health-check declarations, concurrency, VM settings, and mounts. Environment,
+build-argument and check-header values and command bodies are omitted. Unspecified
+settings stay null or absent rather than being filled from Fly defaults. The
+HTTP service's implicit ports 80/443 are identified separately. Legacy boolean
+autostop declarations are preserved with a note; current documented spellings
+are `off`, `stop`, and `suspend`. This does not retrieve secrets, inspect deployed
+Machines, run checks, or calculate billing. Limits: 200,000 input characters,
+10,000 nodes, 50 nesting levels, and 100 entries per selected collection.
+
+Environment comparison parses a supplied dotenv template with python-dotenv's
+parser, preserving duplicate key declarations. It accepts comments, export,
+quoted/multiline values, and an initial BOM; values are discarded and never
+interpolated. `available_keys_json` accepts names only, not a key/value object
+or `NAME=value` strings. Keys are case-sensitive ASCII identifiers of at most
+200 characters. It reports missing, unexpected, matched, and duplicate names.
+`keys_match` compares sets, independent of duplicates. All template keys count
+as expected names: optional/required semantics and actual value validity are
+not inferred. The server's own environment is not read. Each input is capped at
+200,000 characters, with 1,000 template declarations and 1,000 available entries.
+
+Kubernetes inspection accepts YAML or JSON, multiple documents, and one-level
+`kind: List` collections. Common inspected kinds are Pod, Deployment,
+StatefulSet, DaemonSet, ReplicaSet, Job, CronJob, Service, Secret, and ConfigMap.
+Other kinds receive metadata-only summaries with `inspected: false`. Workloads
+report regular/init/ephemeral containers, images, declared replicas, ports,
+resource requests/limits, probe actions/timings, and Secret/ConfigMap references
+from environment declarations, image pull secrets, and volumes. Secret/ConfigMap
+data, literal environment values, annotations, commands/arguments, and probe
+header values are omitted. No defaults, API-version/schema validation, cluster
+reference resolution, scheduling evaluation, Helm, or Kustomize rendering is
+performed; resource quantities are returned without interpreting their units.
+It reuses the restricted scalar/alias handling of the Compose/Actions loader,
+but allows multiple documents. Bounds: 200,000 input characters, 100 documents
+and objects, 10,000 expanded nodes across documents, 50 nesting levels, 200
+total containers, and 100 entries per selected collection. `limit` returns
+1-50 objects; counts and validation cover all objects, including omitted rows.
+
+SBOM inspection accepts CycloneDX JSON versions 1.5, 1.6, and 1.7, not SPDX/XML.
+Inventory includes `metadata.component` and nested component declarations;
+`component_count` includes both. It reports component names, versions, package
+URLs, types, scopes, and supplied license IDs/names/expressions, without checking
+license validity/compliance or vulnerability status. License text, properties,
+descriptions, and external references are omitted. Declared `dependsOn` edges
+are distinct from component nesting; repeated targets are deduplicated. Graph
+cycles and references absent from inspected components are reported, but those
+references may belong to uninspected services or external BOMs and are not
+necessarily invalid. No graph completeness or runtime reachability is inferred.
+Bounds: 200,000 input characters, 10,000 nodes, 50 nesting levels, 1,000 components
+including metadata/nesting, 1,000 dependency entries, 5,000 edges, and 50 license
+choices per component. `limit` returns 1-200 components, dependency entries,
+targets per entry, and unresolved references, with truncation indicators.
+
+Selected text in Fly/Kubernetes/SBOM summaries is limited to 2,000 characters
+(names often 200); oversized selected fields are rejected, not shortened.
+All four tools reject combined output exceeding 100,000 characters. Parser
+errors omit source snippets. No new dependencies or API keys are needed.
+
+References: [Fly configuration](https://docs.fly.io/reference/configuration),
+[python-dotenv parser](https://github.com/theskumar/python-dotenv),
+[Kubernetes objects](https://kubernetes.io/docs/concepts/overview/working-with-objects/),
+[Kubernetes probes](https://kubernetes.io/docs/concepts/workloads/pods/probes/), and
+[CycloneDX schema](https://github.com/CycloneDX/specification/blob/master/schema/bom-1.7.schema.json).
+
 Run the focused utility tests:
 
 ```powershell
@@ -633,8 +716,10 @@ tools. The live suite also verifies PDF, public GitHub, OpenAPI, npm metadata,
 OSV advisories, GitHub workflow runs/jobs, JMESPath queries, dependency manifests,
 SQL analysis, version comparison, lockfile comparison, advisory details,
 JSON Patch, structured logs, endpoint checks, commit checks, Dockerfile inspection,
-HTTP caching, Compose/Actions configuration, redirects, and CORS, for a total of 47
-authenticated tool calls. The new checks require deployment of the latest code.
+HTTP caching, Compose/Actions configuration, redirects, CORS, Fly configuration,
+environment key comparison, Kubernetes manifests, and CycloneDX inventory, for
+a total of 51 authenticated tool calls. The new checks require deployment of
+the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;
 loopback/private base URLs cannot pass that outbound check.
 
