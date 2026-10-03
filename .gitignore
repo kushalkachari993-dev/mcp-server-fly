@@ -12,3 +12,5 @@ wheels/
 # Local environment and tool caches
 .env
 .uv-cache/
+.uv-agent-cache/
+.uv-agent-deps/

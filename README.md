@@ -1369,6 +1369,59 @@ the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;
 loopback/private base URLs cannot pass that outbound check.
 
+Client-side agents
+------------------
+
+Four optional agents reuse this server's authenticated SSE tools. They run on
+your machine or in another project, not on the Fly.io machine:
+
+| Agent | Purpose |
+| --- | --- |
+| `release-readiness` | Review supplied Fly/Docker/CI configuration, public CI and endpoint evidence. |
+| `api-contract-auditor` | Compare public OpenAPI/GraphQL contracts and endpoint observations. |
+| `data-quality-analyst` | Profile supplied CSV/JSON and inspect SQL text; no database connection. |
+| `research-briefing` | Build a source-linked brief from public web, RSS, PDF, and GitHub content. |
+
+Install the separate client project, which includes the
+[OpenAI Agents SDK](https://developers.openai.com/api/docs/guides/agents/quickstart?lang=python),
+and list the profiles from the repository root:
+
+```powershell
+uv sync --project client
+uv run --project client python -m agent_client --list
+```
+
+On Windows systems that block uv's managed Python, create the client
+environment with an approved interpreter using
+`uv sync --project client --python C:\path\to\approved\python.exe`.
+
+Set `OPENAI_API_KEY`, `MCP_API_KEY`, and `OPENAI_MODEL` in your local ignored
+`.env` file or environment. `MCP_API_KEY` is the same key supplied to Fly, not a
+new key; Fly does not reveal its plaintext later. Keep `OPENAI_API_KEY` on the
+client only. You can override the model with `--model` and the server origin
+with `--base-url` or `MCP_BASE_URL` (default `https://mcpsever.fly.dev`).
+
+```powershell
+uv run --project client python -m agent_client release-readiness --task "Review the public CI status for owner/repo and these Fly settings: ..."
+uv run --project client python -m agent_client research-briefing --task "Brief me on the latest public releases for owner/repo, with source links."
+uv run --project client python -m agent_client data-quality-analyst --task-file .\analysis-task.txt
+```
+
+Each agent exposes only its listed domain tools, checks that they are deployed
+before calling the model, and stops after eight model turns or three minutes by
+default. Use `--max-turns` and `--timeout-seconds` to adjust those bounds. Runs
+are independent; there is no persistent memory, deployment action, local file
+browsing, private API access, or database execution. The CLI can read one task
+file explicitly supplied with `--task-file`. SDK tracing is disabled by default,
+but your task and tool results are still sent to the selected OpenAI model.
+Do not submit secrets or private data. OpenAI model calls may be billed
+separately from Fly.io usage. The server may need a cold start after autostop.
+Only override `--base-url` for a server you trust: it receives `MCP_API_KEY`.
+
+The agents do not add MCP tools to the server. Deploy the latest server version
+before running a profile that depends on newly added tools. The client has its
+own lockfile in `client/uv.lock`; the Fly server dependency lock is unchanged.
+
 Configuration
 -------------
 
