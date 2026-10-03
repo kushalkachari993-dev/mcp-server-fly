@@ -18,19 +18,19 @@ def _pointer(parts):
     return "".join("/" + str(part).replace("~", "~0").replace("/", "~1") for part in parts)
 
 
+def _make_validator(schema):
+    validator_class = validator_for(schema, default=None)
+    if validator_class is None:
+        if isinstance(schema, dict) and "$schema" in schema:
+            raise ValueError("Unsupported JSON Schema draft")
+        validator_class = Draft202012Validator
+    validator_class.check_schema(schema)
+    return validator_class(schema, registry=Registry(retrieve=_deny_remote_reference), format_checker=FormatChecker())
+
+
 def _validate_worker(sender, instance, schema):
     try:
-        validator_class = validator_for(schema, default=None)
-        if validator_class is None:
-            if isinstance(schema, dict) and "$schema" in schema:
-                raise ValueError("Unsupported JSON Schema draft")
-            validator_class = Draft202012Validator
-        validator_class.check_schema(schema)
-        validator = validator_class(
-            schema,
-            registry=Registry(retrieve=_deny_remote_reference),
-            format_checker=FormatChecker(),
-        )
+        validator = _make_validator(schema)
         errors = []
         truncated = False
         for error in validator.iter_errors(instance):

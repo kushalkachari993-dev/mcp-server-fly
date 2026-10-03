@@ -62,6 +62,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "compare_coverage_reports", "compare_junit_reports", "compare_har_reports", "compare_k6_summaries",
                 "inspect_graphql_schema", "validate_graphql_operation", "compare_graphql_schemas", "inspect_postman_collection",
                 "compare_docker_compose", "compare_kubernetes_manifests", "compare_github_actions", "compare_fly_configs",
+                "profile_csv", "validate_csv_schema", "compare_csv_tables", "redact_csv_columns",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -346,6 +347,27 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "after": 'app = "demo"\n[http_service]\ninternal_port = 8000\nauto_stop_machines = "off"\n'},
                 lambda text: json.loads(text)["selected_fields_equal"] is False
                 and json.loads(text)["configuration_changes"][0]["path"] == "/services")
+            await check("profile_csv", {"csv_text": 'id,note\n001,ok\n001,ok\n002,\n'},
+                lambda text: json.loads(text)["row_count"] == 3
+                and json.loads(text)["duplicate_row_count"] == 1
+                and json.loads(text)["columns"][1]["empty_count"] == 1)
+            await check("validate_csv_schema", {
+                "csv_text": 'id,code\n001,ok\n002,\n', "required_columns_json": '["id","code"]',
+                "schema_json": '{"type":"object","properties":{"code":{"type":"string","minLength":1}}}'},
+                lambda text: json.loads(text)["valid"] is False
+                and json.loads(text)["invalid_rows"] == [2]
+                and json.loads(text)["errors"][0]["keyword"] == "minLength")
+            await check("compare_csv_tables", {
+                "before": 'id,value\n001,old\n002,same\n', "after": 'id,value\n001,new\n003,added\n',
+                "key_columns_json": '["id"]'},
+                lambda text: json.loads(text)["changed_row_count"] == 1
+                and json.loads(text)["added_row_count"] == 1
+                and json.loads(text)["removed_row_count"] == 1)
+            await check("redact_csv_columns", {
+                "csv_text": 'id,token\n001,private-token\n', "columns_json": '["token"]'},
+                lambda text: json.loads(text)["replacement_count"] == 1
+                and json.loads(text)["csv"] == 'id,token\r\n001,[REDACTED]\r\n'
+                and "private-token" not in text)
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 

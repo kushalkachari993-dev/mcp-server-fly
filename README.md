@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 104 tools.
+The server registers 108 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -113,6 +113,10 @@ The server registers 104 tools.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
 - `compare_fly_configs(before, after, limit)` - compare selected supplied fly.toml regions, service ports/checks, VM settings, autostart/autostop, mounts and configuration key names offline.
+- `profile_csv(csv_text, delimiter, limit)` - summarize supplied CSV row/column counts, empty/whitespace cells, exact duplicate rows, uniqueness and string lengths without returning cell values.
+- `validate_csv_schema(csv_text, schema_json, required_columns_json, delimiter, limit)` - validate string-valued CSV row objects against JSON Schema and optional explicit required header names in a bounded offline worker.
+- `compare_csv_tables(before, after, key_columns_json, delimiter, limit)` - compare supplied CSV rows by explicit composite string keys, keeping duplicate/empty keys ambiguous and reporting column/cell changes offline.
+- `redact_csv_columns(csv_text, columns_json, delimiter, mask)` - replace every value in explicitly selected existing columns and return complete rewritten CSV with counts; unselected data remains unchanged.
 
 Data utility examples
 ---------------------
@@ -1146,6 +1150,103 @@ References: [Compose services](https://docs.docker.com/reference/compose-file/se
 [Actions workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax), and
 [Fly app configuration](https://docs.fly.io/reference/configuration).
 
+CSV data-quality examples
+-------------------------
+
+```text
+profile_csv(csv_text='id,note\n001,ok\n001,ok\n002,\n')
+validate_csv_schema(csv_text='id,code\n001,ok\n002,\n', schema_json='{"type":"object","properties":{"code":{"type":"string","minLength":1}}}', required_columns_json='["id","code"]')
+compare_csv_tables(before='id,value\n001,old\n002,same\n', after='id,value\n001,new\n003,added\n', key_columns_json='["id"]')
+redact_csv_columns(csv_text='id,token\n001,private-token\n', columns_json='["token"]')
+```
+
+All four accept supplied CSV text, not paths/URLs, and run offline with existing
+dependencies and no new API keys. The shared Python CSV reader preserves strings,
+leading zeros, case, spaces, quoted commas/quotes and embedded newlines. Delimiter
+is one character (default comma; use `"\t"` for TSV), excluding quote/CR/LF/NUL.
+There is no delimiter/header guessing, coercion, trimming or expression execution.
+
+Quality-tool CSV limits are 200,000 input characters, 1,000 data rows, 100 columns,
+and unique nonempty header names of at most 200 characters without controls.
+Native CSV parser field limits also apply. A header-only table is valid input.
+Empty physical records are skipped; records containing empty string cells remain
+data. Malformed quoting, duplicate headers and wrong row widths fail rather than
+silently padding or dropping cells. All bounded rows are inspected before limits.
+The original conversion tools retain their existing row/quoting behavior.
+
+`profile_csv` returns counts and per-column statistics, not raw values or samples.
+Duplicate-row count means repeated exact rows beyond their first occurrence.
+Empty cells are exactly `""`; whitespace-only values are nonempty and counted
+separately. Distinct counts include empty strings, with a separate nonempty count.
+Length statistics include all cells, count Unicode code points (not bytes or
+graphemes), and are null for zero rows. No statistical/type inference is performed.
+
+`validate_csv_schema` treats each row as an object with string-valued properties.
+JSON Schema `required` checks property presence, not nonempty values; use
+`minLength` or other string constraints for cell rules. Integer/boolean/null types
+do not convert CSV strings. `required_columns_json` is an independent JSON array
+of exact header names (default `[]`), checked even with zero data rows. Missing
+explicit headers are reported in `header_check`. Per-row schema requirements,
+including conditional/local-reference rules, apply only to actual rows; validation
+of a header-only table is vacuous unless explicit header requirements fail.
+
+The validator supports installed known drafts (default 2020-12), local references
+and installed format checks; unknown formats remain unchecked and external
+resource retrieval is disabled. Schema/selection JSON is limited to 200,000
+characters, 10,000 nodes and 50 nesting levels; duplicate keys and nonfinite values
+are rejected. Validation runs in a five-second spawned worker, with one active CSV
+schema worker per server process and a four-second CPU limit on POSIX. Busy calls
+return a retry error; timed-out workers are stopped and cleaned up.
+
+Every bounded row is classified. At most 50 diagnostics are collected; once that
+cap is reached, only the first failure needed to classify each remaining row is
+observed. `reported_error_count` is collected diagnostics, not total violations;
+`errors_capped` signals further errors were observed but omitted. Returned errors
+contain row ordinals, keyword IDs and JSON Pointer paths, not library messages,
+cell values or schema literals. Invalid/unsupported schemas and unresolved
+references return sanitized errors. Schema validity is checked even with zero rows.
+
+`compare_csv_tables` requires a nonempty unique `key_columns_json` array of exact
+header names present in both tables. Composite identities are tuples of original
+strings, never joined text or numbers. Empty/whitespace-only key components are
+unkeyed; duplicate keys on either side are ambiguous and never paired by position.
+`equal` is false for known data/column additions/removals/changes, null when only
+ambiguous/unkeyed rows remain unresolved, and true otherwise. Row and column order
+do not affect equality and are reported separately when comparable. Absent columns
+differ from present empty cells. A changed key becomes added/removed, not an
+inferred edit. Added/removed rows return only keys and record ordinals; matched
+changes return selected before/after cell values and presence flags.
+
+Profile/validation/comparison `limit` defaults to 20 and accepts 1-50 entries per
+returned list, including nested lists. Compare/validation string previews shorten
+at 1,000 characters. Full strings are used before display limiting, so different
+values/keys can have equal shortened previews. `truncated` marks shortened display
+or capped validation errors; all row/cell/matching counts still cover the bounded
+inputs. Row ordinals are 1-based data-record numbers after skipped blank records,
+not physical lines. Serialized JSON output is capped at 100,000 characters;
+oversized results return errors asking for smaller inputs/limits.
+
+`redact_csv_columns` requires a nonempty unique `columns_json` array of existing
+exact header names. Unknown names fail closed. Every selected cell, including
+empty values, is replaced by `mask` (default `[REDACTED]`; 0-200 characters without
+NUL). It returns JSON with complete `csv` text, selected names and replacement
+counts; unselected cell values and header names remain unchanged. Quoting is
+regenerated and record separators normalized to CRLF so embedded CR/LF values
+round-trip. Blank records are skipped. Output is complete or an error, never a
+truncated table; both rewritten CSV and its serialized JSON must fit 100,000
+characters, including JSON escaping/metadata.
+
+Only named columns are redacted: no automatic secret/PII discovery, complete
+anonymization or spreadsheet-formula sanitization. Unselected sensitive/formula
+values can remain. Headers, key values, changed cells and diagnostic paths can
+contain sensitive caller data; sanitize inputs before sharing results. No file,
+network, schema-resource fetch, SQL execution or installation is performed.
+
+References: [Python CSV](https://docs.python.org/3.12/library/csv.html),
+[JSON Schema object constraints](https://json-schema.org/understanding-json-schema/reference/object),
+[jsonschema validation](https://python-jsonschema.readthedocs.io/en/stable/validate/), and
+[reference handling](https://python-jsonschema.readthedocs.io/en/stable/referencing/).
+
 Run the focused utility tests:
 
 ```powershell
@@ -1171,8 +1272,9 @@ HTTP caching, Compose/Actions configuration, redirects, CORS, Fly configuration,
 environment key comparison, Kubernetes manifests, CycloneDX inventory, JUnit,
 SARIF, Prometheus metrics, access logs, LCOV/Cobertura coverage, HAR, k6 summaries,
 coverage/JUnit/HAR/k6 report comparisons, GraphQL schema/operation analysis,
-Postman collection inspection and Compose/Kubernetes/Actions/Fly configuration
-comparisons, for a total of 71 authenticated tool
+Postman collection inspection, Compose/Kubernetes/Actions/Fly configuration
+comparisons and CSV profiling/schema validation/table comparison/column redaction,
+for a total of 75 authenticated tool
 calls. The new checks require deployment of
 the latest code.
 The endpoint check targets the supplied base URL's public `/health` route;

@@ -3,16 +3,7 @@ import io
 import json
 import math
 
-
-_MAX_INPUT_CHARS = 200000
-_MAX_ROWS = 1000
-
-
-def _validate_input(value: str, delimiter: str) -> None:
-    if len(value) > _MAX_INPUT_CHARS:
-        raise ValueError(f"Input must not exceed {_MAX_INPUT_CHARS} characters")
-    if len(delimiter) != 1 or delimiter in {'"', "\r", "\n", "\0"}:
-        raise ValueError("Delimiter must be one character other than a quote, newline, or NUL")
+from .service import _MAX_ROWS, _validate_input, read_csv
 
 
 def _reject_constant(value: str):
@@ -36,28 +27,8 @@ def register(mcp):
         Use delimiter='\\t' for tab-separated data.
         """
         try:
-            _validate_input(csv_text, delimiter)
-            reader = csv.reader(
-                io.StringIO(csv_text.lstrip("\ufeff"), newline=""),
-                delimiter=delimiter,
-                strict=True,
-            )
-            headers = next(reader, None)
-            if not headers or any(not header.strip() for header in headers):
-                raise ValueError("CSV must have a nonempty header for each column")
-            if len(headers) != len(set(headers)):
-                raise ValueError("CSV headers must be unique")
-
-            rows = []
-            for row in reader:
-                if not row:
-                    continue
-                if len(row) != len(headers):
-                    raise ValueError(f"CSV row ending on line {reader.line_num} has an incorrect number of cells")
-                if len(rows) >= _MAX_ROWS:
-                    raise ValueError(f"CSV must not exceed {_MAX_ROWS} data rows")
-                rows.append(dict(zip(headers, row)))
-            return json.dumps(rows, indent=2)
+            headers, rows = read_csv(csv_text, delimiter)
+            return json.dumps([dict(zip(headers, row)) for row in rows], indent=2)
         except (ValueError, csv.Error) as error:
             return f"Error: {error}"
 
