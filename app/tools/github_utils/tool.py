@@ -9,6 +9,22 @@ from . import service
 def register(mcp):
 
     @mcp.tool()
+    async def get_github_commit_checks(owner: str, repo: str, ref: str, limit: int = 10) -> str:
+        """Read public GitHub CI check runs and legacy commit statuses for one resolved
+        commit SHA. Returns pending/failure observations, empty indicators, counts,
+        and separate pagination flags. limit is 1-20 rows per endpoint. No token
+        is accepted. This does not determine whether required checks have passed.
+        """
+        try:
+            result = await anyio.to_thread.run_sync(service.read_commit_checks, owner, repo, ref, limit)
+            output = json.dumps(result, indent=2, allow_nan=False)
+            if len(output) > 100000:
+                raise ValueError("Commit checks output exceeds 100000 characters; reduce limit")
+            return output
+        except (ValueError, urllib3.exceptions.HTTPError, OSError) as error:
+            return f"Error: {error}"
+
+    @mcp.tool()
     async def get_github_file(owner: str, repo: str, path: str, ref: str = "", max_chars: int = 20000) -> str:
         """Read a UTF-8 file from a public GitHub repository at a ref or default branch.
         Returns content, SHA, and truncation flag. File limit 1 MB; output 100-50000

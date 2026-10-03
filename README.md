@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 72 tools.
+The server registers 76 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -81,6 +81,10 @@ The server registers 72 tools.
 - `get_vulnerability_details(advisory_id, max_affected, max_chars)` - read OSV affected ranges, fix events, and references.
 - `apply_json_patch(value, patch)` - apply JSON Patch operations to supplied JSON offline.
 - `analyze_jsonl_logs(content, limit, level_field, message_field, timestamp_field)` - summarize supplied structured logs offline.
+- `check_http_endpoints(endpoints_json)` - check up to five public endpoints with individual status matches, timing, and errors.
+- `get_github_commit_checks(owner, repo, ref, limit)` - read public CI check runs and legacy statuses for one resolved commit SHA.
+- `inspect_dockerfile(content)` - summarize supplied Dockerfile stages and declared runtime settings without building.
+- `inspect_http_cache(url)` - separate browser/shared-cache response directives and report conflicting or malformed settings.
 
 Data utility examples
 ---------------------
@@ -459,6 +463,73 @@ References: [OSV advisory API](https://google.github.io/osv.dev/get-v1-vulns/),
 [JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902), and
 [JSON Lines](https://jsonlines.org/).
 
+Deployment diagnostic examples
+------------------------------
+
+```text
+check_http_endpoints(endpoints_json='[{"name":"health","url":"https://mcpsever.fly.dev/health","expected_status":200},{"name":"example","url":"https://example.com"}]')
+get_github_commit_checks(owner="pallets", repo="flask", ref="main", limit=10)
+inspect_dockerfile(content='FROM python:3.12-slim AS app\nUSER 1000\nEXPOSE 8000\nCMD ["python", "app.py"]\n')
+inspect_http_cache(url="https://example.com")
+```
+
+Endpoint checks accept a JSON array of 1-5 objects containing `url`, optional
+`name` (up to 100 characters), and optional `expected_status` (default 200).
+Unknown fields and malformed input are rejected before network access. Results
+preserve input order and include final URL/status, full-request elapsed
+milliseconds (excluding queue time), a status match, and individual errors.
+There are at most two simultaneous requests per batch, each using GET with a
+10-second request budget. Blocking DNS resolution cannot be interrupted by this
+budget and can exceed it. The shared transport blocks non-public destinations
+and redirects, limits redirects to three, and caps each download at 1 MB.
+Credentials, custom headers, and request bodies are not accepted. Input is
+limited to 25,000 characters and URLs to 4,096 characters on ports 80/443.
+
+Commit checks use two public, host-pinned GitHub requests: combined legacy
+statuses resolve the reference to a SHA, and latest check runs use that same
+SHA. `limit` returns 1-20 rows per endpoint; full counts, separate pagination
+flags, empty indicators, and pending/failure observations are included.
+Observation counts cover returned rows only. The legacy `combined_state` does
+not include check runs, and empty results do not indicate CI passed. Required
+checks and branch protection are not evaluated. GitHub caps this check-run
+endpoint at the 1,000 most recent check suites. Text shortening sets the overall
+`truncated` flag. Each request retains the shared 1 MB download limit.
+
+Dockerfile inspection uses `dockerfile-parse` in memory. It reports stages,
+base-image expressions, platform expressions, references to earlier named
+stages, instruction counts, global ARG declarations, and the last declared
+USER, WORKDIR, CMD, and ENTRYPOINT per stage, plus declared EXPOSE tokens.
+Shell/JSON exec commands and multiline instructions are distinguished. Values
+are not expanded; inherited image/stage settings are not inferred. An absent
+USER is reported as undeclared, not as proof of running as root. No build,
+execution, image download, or file modification occurs. This is a structural
+summary, not Docker build validation. BuildKit heredoc/`<<` syntax is rejected.
+Bounds are 200,000 input characters, 5,000 physical lines, 1,000 instructions, 20 stages, 100 returned
+ports/command arguments per stage, and 2,000 characters per returned value.
+Omitted values set `truncated`.
+
+Cache inspection uses HEAD with GET fallback on 405/501, reporting the method
+and final response even for non-2xx statuses. Cache-Control parsing preserves
+quoted field lists and repeated directives. Browser freshness uses `max-age`;
+shared-cache freshness prefers `s-maxage`. Invalid/duplicate numeric directives
+do not produce inferred lifetimes. `no-cache` validation is distinct from
+`no-store` storage prohibition, with field-qualified private/no-cache directives
+and the must-understand exception reported explicitly. Conflicts appear under
+`issues`. Header interpretation does not guarantee actual caching behavior;
+declared lifetimes are not remaining TTL, and Age/Date/Expires timing is not
+calculated. Up to 16,000 Cache-Control characters and 100 directives are parsed;
+selected raw response headers are returned up to 2,000 characters each, with a
+truncation flag. The shared public transport and download limits apply.
+
+All four tools cap output at 100,000 characters and need no new API keys.
+This batch adds only the Dockerfile parser dependency.
+
+References: [GitHub check runs](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference),
+[GitHub combined statuses](https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference),
+[Dockerfile reference](https://docs.docker.com/reference/dockerfile/),
+[dockerfile-parse](https://github.com/containerbuildsystem/dockerfile-parse), and
+[HTTP caching](https://datatracker.ietf.org/doc/html/rfc9111).
+
 Run the focused utility tests:
 
 ```powershell
@@ -479,8 +550,11 @@ to verify feed and table extraction, then checks the numeric, diff, and unit
 tools. The live suite also verifies PDF, public GitHub, OpenAPI, npm metadata,
 OSV advisories, GitHub workflow runs/jobs, JMESPath queries, dependency manifests,
 SQL analysis, version comparison, lockfile comparison, advisory details,
-JSON Patch, and structured logs, for a total of 39
+JSON Patch, structured logs, endpoint checks, commit checks, Dockerfile inspection,
+and HTTP caching, for a total of 43
 authenticated tool calls. The new checks require deployment of the latest code.
+The endpoint check targets the supplied base URL's public `/health` route;
+loopback/private base URLs cannot pass that outbound check.
 
 Configuration
 -------------

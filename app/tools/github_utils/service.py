@@ -299,3 +299,73 @@ def read_commit(owner, repo, ref, max_files):
                   "total": stats.get("total", 0)},
         "url": _text(data.get("html_url"), 1000), "files": rows, "truncated": truncated,
     }
+
+
+def read_commit_checks(owner, repo, ref, limit):
+    root = _repo_path(owner, repo)
+    if not _REF.fullmatch(ref) or ref.endswith("/") or ".." in ref or "//" in ref:
+        raise ValueError("ref must be a valid branch, tag, or commit reference")
+    if type(limit) is not int or not 1 <= limit <= 20:
+        raise ValueError("limit must be between 1 and 20")
+    # Resolve the ref through the status response, then pin check runs to that SHA.
+    legacy = _request(f"{root}/commits/{quote(ref, safe='')}/status", {"per_page": limit + 1})
+    if (not isinstance(legacy, dict) or not isinstance(legacy.get("statuses"), list)
+            or not isinstance(legacy.get("sha"), str) or not re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", legacy["sha"])
+            or not isinstance(legacy.get("state"), str) or legacy["state"] not in {"pending", "success", "failure"}):
+        raise ValueError("GitHub returned invalid combined commit status metadata")
+    sha = legacy["sha"]
+    checks = _request(f"{root}/commits/{sha}/check-runs", {"filter": "latest", "per_page": limit + 1})
+    if not isinstance(checks, dict) or not isinstance(checks.get("check_runs"), list):
+        raise ValueError("GitHub did not return commit check runs")
+    for data, key in ((legacy, "statuses"), (checks, "check_runs")):
+        total = data.get("total_count")
+        if type(total) is not int or total < len(data[key]):
+            raise ValueError("GitHub returned an invalid commit check/status count")
+    for row in legacy["statuses"]:
+        if (not isinstance(row, dict) or type(row.get("id")) is not int or row["id"] < 1
+                or not isinstance(row.get("context"), str)
+                or not isinstance(row.get("state"), str) or row["state"] not in {"error", "failure", "pending", "success"}):
+            raise ValueError("GitHub returned invalid commit status metadata")
+    for row in checks["check_runs"]:
+        if (not isinstance(row, dict) or type(row.get("id")) is not int or row["id"] < 1
+                or not isinstance(row.get("name"), str)
+                or not isinstance(row.get("status"), str)
+                or row["status"] not in {"queued", "in_progress", "completed", "waiting", "requested", "pending"}
+                or (row.get("conclusion") is not None and not isinstance(row["conclusion"], str))
+                or row.get("head_sha") != sha):
+            raise ValueError("GitHub returned invalid check run metadata or a mismatched commit SHA")
+    truncated = legacy["total_count"] > limit or checks["total_count"] > limit
+
+    def text(value, maximum):
+        nonlocal truncated
+        if isinstance(value, str):
+            truncated |= len(value) > maximum
+        return _text(value, maximum)
+
+    runs = [{"id": row["id"], "name": text(row["name"], 200), "status": row["status"],
+             "conclusion": text(row.get("conclusion"), 50) or None,
+             "started_at": text(row.get("started_at"), 50) or None,
+             "completed_at": text(row.get("completed_at"), 50) or None,
+             "url": text(row.get("html_url"), 1000)} for row in checks["check_runs"][:limit]]
+    statuses = [{"id": row["id"], "context": text(row["context"], 200), "state": row["state"],
+                 "description": text(row.get("description"), 500),
+                 "url": text(row.get("target_url"), 1000),
+                 "updated_at": text(row.get("updated_at"), 50) or None}
+                for row in legacy["statuses"][:limit]]
+    return {
+        "owner": owner, "repo": repo, "ref": ref, "sha": sha,
+        "check_runs": {"filter": "latest", "total_count": checks["total_count"], "runs": runs,
+                       "empty": checks["total_count"] == 0, "truncated": checks["total_count"] > limit},
+        "legacy_statuses": {"combined_state": legacy["state"], "total_count": legacy["total_count"],
+                            "statuses": statuses, "empty": legacy["total_count"] == 0,
+                            "truncated": legacy["total_count"] > limit},
+        "observed": {"pending_check_runs": sum(row["status"] != "completed" for row in runs),
+                     "failed_check_runs": sum(row["conclusion"] in {"failure", "timed_out", "cancelled", "action_required", "stale"}
+                                              for row in runs),
+                     "pending_statuses": sum(row["state"] == "pending" for row in statuses),
+                     "failed_statuses": sum(row["state"] in {"error", "failure"} for row in statuses)},
+        "notes": ["Observation counts cover returned rows only; combined_state covers legacy statuses, not check runs.",
+                  "No required-check or branch-protection assessment is made; empty results do not mean CI passed.",
+                  "GitHub limits this endpoint to checks from the 1000 most recent check suites."],
+        "truncated": truncated,
+    }

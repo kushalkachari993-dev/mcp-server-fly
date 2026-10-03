@@ -54,6 +54,7 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "list_github_workflow_runs", "query_json_advanced",
                 "list_github_workflow_jobs", "inspect_dependency_manifest", "analyze_sql", "compare_versions",
                 "compare_lockfiles", "get_vulnerability_details", "apply_json_patch", "analyze_jsonl_logs",
+                "check_http_endpoints", "get_github_commit_checks", "inspect_dockerfile", "inspect_http_cache",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -198,6 +199,23 @@ async def run_test(base_url: str, api_key: str) -> None:
             await check("analyze_jsonl_logs", {
                 "content": '{"level":"error","message":"failed","timestamp":"2026-01-01T12:00:00Z"}\n'},
                 lambda text: json.loads(text)["error_count"] == 1 and json.loads(text)["parsed_entries"] == 1)
+            await check("check_http_endpoints", {
+                "endpoints_json": json.dumps([{"name": "health", "url": urljoin(base_url, "health"), "expected_status": 200}])},
+                lambda text: json.loads(text)["all_matched"] and json.loads(text)["endpoints"][0]["http_status"] == 200)
+            commit_sha = json.loads(workflow_text)["runs"][0]["sha"]
+            await check("get_github_commit_checks", {
+                "owner": "pallets", "repo": "flask", "ref": commit_sha, "limit": 3},
+                lambda text: json.loads(text)["sha"] == commit_sha
+                and isinstance(json.loads(text)["check_runs"]["runs"], list)
+                and isinstance(json.loads(text)["legacy_statuses"]["statuses"], list))
+            await check("inspect_dockerfile", {
+                "content": 'FROM python:3.12-slim AS app\nUSER 1000\nEXPOSE 8000\nCMD ["python", "app.py"]\n'},
+                lambda text: json.loads(text)["stage_count"] == 1
+                and json.loads(text)["stages"][0]["declared_user"]["value"] == "1000"
+                and json.loads(text)["stages"][0]["cmd"]["form"] == "exec")
+            await check("inspect_http_cache", {"url": "https://example.com"},
+                        lambda text: json.loads(text)["http_status"] == 200
+                        and {"browser", "shared"} == set(json.loads(text)["scopes"]))
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 
