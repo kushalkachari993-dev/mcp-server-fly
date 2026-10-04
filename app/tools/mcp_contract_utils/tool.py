@@ -1,6 +1,6 @@
 from app.tools.report_utils.tool import _run
 
-from . import service
+from . import catalogs, service
 
 
 def register(mcp):
@@ -45,3 +45,49 @@ def register(mcp):
         at most 200000 chars; errors omit values; limit 1-50.
         """
         return await _run(service.validate_mcp_tool_result, manifest, tool_name, result, protocol_version, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_resource_manifest(resources: str, templates: str = "",
+                                            protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Inspect supplied resources/list and optional resources/templates/list
+        JSON responses. Summarize names, query-free URIs, MIME types and sizes;
+        mark nextCursor as partial. No resource reads or network access. Each
+        input at most 200000 chars, 20000 nodes, 500 entries; limit 1-50.
+        Supports 2025-11-25 and 2026-07-28.
+        """
+        return await _run(catalogs.inspect_mcp_resource_manifest, resources, templates, protocol_version, limit)
+
+    @mcp.tool()
+    async def compare_mcp_resource_manifests(before_resources: str, after_resources: str,
+                                             before_templates: str = "", after_templates: str = "",
+                                             protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Compare complete supplied MCP resource and optional template lists
+        by full URI identity. Flag presence, MIME, size and selected metadata
+        changes without reading content or claiming compatibility. Supply both
+        template lists or neither; nextCursor pages are rejected. Each input at
+        most 200000 chars; limit 1-50. Supports 2025-11-25 and 2026-07-28.
+        """
+        return await _run(catalogs.compare_mcp_resource_manifests, before_resources, after_resources,
+                          before_templates, after_templates, protocol_version, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_prompt_manifest(manifest: str, protocol_version: str = "2025-11-25",
+                                          limit: int = 20) -> str:
+        """Inspect supplied prompts/list JSON names and required argument
+        declarations. Descriptions and prompt message content are omitted.
+        A nextCursor marks a partial page. No prompt fetch or server access.
+        Input at most 200000 chars, 20000 nodes, 500 prompts/arguments;
+        limit 1-50. Supports 2025-11-25 and 2026-07-28.
+        """
+        return await _run(catalogs.inspect_mcp_prompt_manifest, manifest, protocol_version, limit)
+
+    @mcp.tool()
+    async def compare_mcp_prompt_manifests(before: str, after: str,
+                                           protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Compare complete supplied prompts/list snapshots by exact prompt
+        and argument names. Flag presence, required-flag and selected metadata
+        changes without returning descriptions or prompt content. Partial
+        nextCursor pages are rejected. Each input at most 200000 chars;
+        limit 1-50. Supports 2025-11-25 and 2026-07-28.
+        """
+        return await _run(catalogs.compare_mcp_prompt_manifests, before, after, protocol_version, limit)

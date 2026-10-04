@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 132 tools.
+The server registers 136 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -129,6 +129,10 @@ The server registers 132 tools.
 - `compare_mcp_tool_manifests(before, after, protocol_version, limit)` - compare complete supplied MCP tools/list snapshots by exact names and selected schema/metadata changes offline.
 - `validate_mcp_tool_arguments(manifest, tool_name, arguments, protocol_version, limit)` - validate supplied JSON call arguments against one tool's inputSchema without invoking it.
 - `validate_mcp_tool_result(manifest, tool_name, result, protocol_version, limit)` - check supplied structuredContent against one tool's outputSchema when applicable.
+- `inspect_mcp_resource_manifest(resources, templates, protocol_version, limit)` - inspect supplied MCP resource and optional URI-template catalogs without reading content.
+- `compare_mcp_resource_manifests(before_resources, after_resources, before_templates, after_templates, protocol_version, limit)` - compare complete supplied MCP resource/template catalogs by exact URI identity offline.
+- `inspect_mcp_prompt_manifest(manifest, protocol_version, limit)` - inspect supplied MCP prompt names and required argument declarations without prompt content.
+- `compare_mcp_prompt_manifests(before, after, protocol_version, limit)` - compare complete supplied MCP prompt/argument declarations by exact names offline.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1319,6 +1323,40 @@ Each JSON input is capped at 200,000 characters, 20,000 nodes and depth 50;
 manifests at 500 tools; `limit` at 1-50; output at 100,000 characters. No new
 dependencies or API keys are needed. Specifications: [MCP 2025-11-25 tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools),
 [MCP 2026-07-28 tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools).
+
+MCP resource and prompt catalog examples
+----------------------------------------
+
+```text
+inspect_mcp_resource_manifest(resources='{"resources":[{"uri":"docs://guide","name":"guide","mimeType":"text/markdown"}]}', templates='{"resourceTemplates":[{"uriTemplate":"docs://items/{id}","name":"item"}]}')
+compare_mcp_resource_manifests(before_resources=old_resources_json, after_resources=new_resources_json, before_templates=old_templates_json, after_templates=new_templates_json)
+inspect_mcp_prompt_manifest(manifest='{"prompts":[{"name":"review","arguments":[{"name":"code","required":true}]}]}')
+compare_mcp_prompt_manifests(before=old_prompts_json, after=new_prompts_json)
+```
+
+These are tools for inspecting **supplied** MCP catalogs, not resource or prompt
+endpoints served by this project. Inputs may be JSON-RPC responses or their
+result objects. Resource inspection accepts a `resources/list` response and an
+optional separate `resources/templates/list` response. If `templates` is omitted,
+templates are unknown rather than empty. Resource comparison requires both
+template responses or neither; all comparisons reject any supplied list with
+`nextCursor`. Collect every page before comparing complete snapshots.
+
+Resources match by exact full URI and templates by exact full URI template;
+prompts and their arguments match by exact case-sensitive names. No renames or
+compatibility verdicts are inferred. Display URIs omit userinfo, query and
+fragment, with a short hash of the full URI to distinguish otherwise identical
+displays. Remaining paths and catalog names may still be sensitive. Prompt and
+resource content, descriptions, annotations and icon details are omitted;
+description and selected metadata changes appear only as flags. No server calls,
+URI dereferences, prompt rendering, or RFC 6570 template validation occur.
+
+`protocol_version` defaults to `2025-11-25` and also accepts `2026-07-28` list
+results. Each supplied JSON input is capped at 200,000 characters, 20,000 nodes
+and depth 50; each list at 500 entries, prompt arguments at 500 per prompt;
+`limit` at 1-50 displayed rows, output at 100,000 characters. No new keys or
+dependencies are needed. Specifications: [MCP resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources),
+[MCP prompts](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts).
 
 Deployment configuration comparison examples
 --------------------------------------------
