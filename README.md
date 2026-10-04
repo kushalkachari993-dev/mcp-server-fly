@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 161 tools.
+The server registers 164 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -158,6 +158,9 @@ The server registers 161 tools.
 - `inspect_mcp_resource_subscription_flow(subscribe_request, subscribe_result, notifications, unsubscribe_request, unsubscribe_result, limit)` - correlate a supplied 2025 resource subscription and updates offline.
 - `inspect_mcp_cancellation_flow(request, cancellation, late_response, task_augmented, limit)` - check a supplied 2025 cancellation notification and possible late response offline.
 - `inspect_mcp_task_notification_sequence(listen_request, notifications, limit)` - check supplied 2026 task notifications and per-task status progression offline.
+- `inspect_mcp_sse_trace(content, mode, protocol_version, limit)` - inspect supplied legacy or Streamable HTTP SSE framing, keepalives and JSON-RPC message kinds offline.
+- `inspect_mcp_session_recovery(exchanges, limit)` - check supplied 2025 Streamable HTTP session continuity, 404 recovery and GET resume cursors offline.
+- `inspect_mcp_tool_retry_risk(manifest, attempts, protocol_version, limit)` - find repeated tool calls and report untrusted retry-safety hints offline.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1596,6 +1599,33 @@ or dependencies are needed. Specifications:
 [2025 cancellation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation),
 [2026 Tasks extension](https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks).
 
+MCP transport reliability diagnostics
+------------------------------------
+
+```text
+inspect_mcp_sse_trace(content=sse_text, mode="legacy-sse")
+inspect_mcp_sse_trace(content=streamable_sse_text, mode="streamable-http", protocol_version="2025-11-25")
+inspect_mcp_session_recovery(exchanges=ordered_http_exchanges_json)
+inspect_mcp_tool_retry_risk(manifest=complete_tools_list_json, attempts=tool_call_requests_json)
+```
+
+These tools analyze captured input only. SSE inspection distinguishes legacy
+`endpoint` events from Streamable HTTP messages, counts comment keepalives and
+marks an unfinished final frame as partial. Session recovery accepts an ordered
+array of HTTP exchange objects with `method`, `initialize` (for POST initialize),
+`request_headers`, `response_status`, `response_headers`, optional `event_ids`,
+and optional caller-assigned `stream` label. It applies only to 2025-era
+Streamable HTTP; protocol-level sessions and `Last-Event-ID` resumability do not
+apply to 2026-07-28. Retry inspection compares exact tool names and JSON
+arguments against a complete tools/list snapshot. It does not know whether a
+call executed or whether a repeat was intentional; read-only and idempotent
+annotations are untrusted hints, not permission to retry. Values, IDs and
+message bodies are omitted from output. Inputs are bounded to 200,000
+characters; SSE accepts at most 3,000 lines/100 frames, recovery 100 exchanges,
+and retry inspection 100 calls. No API keys or network access are needed.
+Specifications: [2025 transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports),
+[2026 Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).
+
 Deployment configuration comparison examples
 --------------------------------------------
 
@@ -1863,15 +1893,17 @@ Run the focused utility tests:
 uv run python -m unittest discover -s tests -v
 ```
 
-After deploying, test the live MCP connection and previously deployed tools:
+After deploying, test the live MCP connection and deployed catalog:
 
 ```powershell
 uv run python scripts/test_deployed_mcp.py
 uv run python scripts/test_deployed_mcp.py --transport streamable-http
 ```
 
-The script defaults to legacy SSE; use `--transport streamable-http` after
-deploying the `/mcp` endpoint. It reads `MCP_API_KEY` from the environment or the project's ignored
+The script compares the full deployed tool catalog against the local registry,
+so deploy the same checkout before running it. It defaults to legacy SSE; use
+`--transport streamable-http` after deploying the `/mcp` endpoint. It reads
+`MCP_API_KEY` from the environment or the project's ignored
 `.env` file. The local test suite uses mocked HTTP responses; the deployment
 script makes an authenticated MCP connection and fetches `https://example.com`.
 It also fetches the Django weblog RSS feed and the Python statistics documentation

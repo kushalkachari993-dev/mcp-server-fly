@@ -1,6 +1,6 @@
 from app.tools.report_utils.tool import _run
 
-from . import catalogs, flows, integration, lifecycle, observability, runtime, service, transport
+from . import catalogs, flows, integration, lifecycle, observability, reliability, runtime, service, transport
 
 
 def register(mcp):
@@ -361,3 +361,36 @@ def register(mcp):
         """
         return await _run(lifecycle.inspect_mcp_task_notification_sequence,
                           listen_request, notifications, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_sse_trace(content: str, mode: str = "streamable-http",
+                                    protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Inspect up to 100 supplied SSE frames and 3000 lines, separating
+        legacy endpoint events from Streamable HTTP JSON-RPC messages. Count
+        comments, IDs, retries and a partial final frame; omit message data.
+        2026 streams do not support event IDs or server requests. Offline;
+        content at most 200000 chars; limit 1-50.
+        """
+        return await _run(reliability.inspect_mcp_sse_trace, content, mode, protocol_version, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_session_recovery(exchanges: str, limit: int = 20) -> str:
+        """Inspect 1-100 ordered, supplied 2025 Streamable HTTP exchanges for
+        session-header continuity, reinitialization after 404 and GET resume
+        cursors. Optional local stream labels help detect cross-stream reuse.
+        Does not replay, connect or return header/ID values. JSON input at
+        most 200000 chars and 20000 nodes; limit 1-50.
+        """
+        return await _run(reliability.inspect_mcp_session_recovery, exchanges, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_tool_retry_risk(manifest: str, attempts: str,
+                                          protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Find exact repeated tools/call name-and-arguments pairs in 1-100
+        supplied JSON-RPC requests, using a complete tools/list snapshot.
+        Show untrusted read-only/idempotent hints without declaring a retry
+        safe or proving execution. No calls or value echo; JSON inputs at most
+        200000 chars and 20000 nodes; limit 1-50.
+        """
+        return await _run(reliability.inspect_mcp_tool_retry_risk,
+                          manifest, attempts, protocol_version, limit)

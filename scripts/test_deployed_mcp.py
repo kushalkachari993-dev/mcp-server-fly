@@ -1,9 +1,12 @@
 import argparse
 import asyncio
+from contextlib import redirect_stdout
+from io import StringIO
 import os
 import json
 import math
 from pathlib import Path
+import sys
 from urllib.parse import urljoin
 
 from dotenv import load_dotenv
@@ -13,6 +16,33 @@ from mcp.client.streamable_http import streamablehttp_client
 
 
 DEFAULT_BASE_URL = "https://mcpsever.fly.dev"
+
+
+async def _local_tool_names() -> set[str]:
+    root = str(Path(__file__).resolve().parents[1])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    with redirect_stdout(StringIO()):
+        from app.tools.registry import register_all_tools
+
+        from mcp.server.fastmcp import FastMCP
+
+        local_server = FastMCP("local-catalog-check")
+        register_all_tools(local_server)
+    return {tool.name for tool in await local_server.list_tools()}
+
+
+def _check_catalog(expected: set[str], actual: list[str]) -> None:
+    deployed = set(actual)
+    missing = sorted(expected - deployed)
+    unexpected = sorted(deployed - expected)
+    if len(actual) != len(deployed) or missing or unexpected:
+        raise RuntimeError(
+            f"Deployed catalog differs from local registry: "
+            f"{len(missing)} missing, {len(unexpected)} unexpected, "
+            f"{len(actual) - len(deployed)} duplicate; "
+            f"missing={missing}; unexpected={unexpected}"
+        )
 
 
 def _text_from_tool_result(result) -> str:
@@ -44,35 +74,8 @@ async def run_test(base_url: str, api_key: str, transport: str = "sse") -> None:
             tools_result = await session.list_tools()
             tool_names = [tool.name for tool in tools_result.tools]
             print(f"Tools ({len(tool_names)}): {', '.join(tool_names)}")
-            expected_tools = {
-                "csv_to_json", "json_to_csv", "query_json", "compare_json",
-                "timestamp_to_datetime", "datetime_to_timestamp",
-                "get_webpage_text", "validate_json_schema", "yaml_to_json",
-                "json_to_yaml", "cron_next_runs",
-                "read_rss_feed", "extract_webpage_links", "extract_html_tables",
-                "summarize_numbers", "diff_text", "convert_units",
-                "extract_pdf_text", "get_github_file", "get_github_issue",
-                "get_github_pull_request", "list_github_releases", "inspect_openapi",
-                "get_npm_package", "check_package_vulnerabilities",
-                "list_github_workflow_runs", "query_json_advanced",
-                "list_github_workflow_jobs", "inspect_dependency_manifest", "analyze_sql", "compare_versions",
-                "compare_lockfiles", "get_vulnerability_details", "apply_json_patch", "analyze_jsonl_logs",
-                "check_http_endpoints", "get_github_commit_checks", "inspect_dockerfile", "inspect_http_cache",
-                "inspect_docker_compose", "inspect_github_actions", "inspect_redirect_chain", "inspect_http_cors",
-                "inspect_fly_config", "compare_env_keys", "inspect_kubernetes_manifest", "inspect_sbom",
-                "inspect_junit_report", "inspect_sarif_report", "inspect_prometheus_metrics", "analyze_access_logs",
-                "inspect_lcov_report", "inspect_cobertura_report", "inspect_har", "inspect_k6_summary",
-                "compare_coverage_reports", "compare_junit_reports", "compare_har_reports", "compare_k6_summaries",
-                "inspect_graphql_schema", "validate_graphql_operation", "compare_graphql_schemas", "inspect_postman_collection",
-                "compare_docker_compose", "compare_kubernetes_manifests", "compare_github_actions", "compare_fly_configs",
-                "profile_csv", "validate_csv_schema", "compare_csv_tables", "redact_csv_columns",
-                "inspect_sql_schema", "compare_sql_schemas", "transpile_sql", "extract_sql_lineage",
-                "validate_mcp_http_exchange", "validate_mcp_request_metadata",
-                "inspect_mcp_input_required_roundtrip", "inspect_mcp_auth_discovery",
-            }
-            missing = expected_tools - set(tool_names)
-            if missing:
-                raise RuntimeError(f"Deployed tools missing: {', '.join(sorted(missing))}")
+            _check_catalog(await _local_tool_names(), tool_names)
+            print("PASS deployed catalog matches local registry")
 
             calculate_result = await session.call_tool(
                 "calculate",
@@ -390,6 +393,35 @@ async def run_test(base_url: str, api_key: str, transport: str = "sse") -> None:
                 lambda text: json.loads(text)["column_references_resolved"] is True
                 and json.loads(text)["sources"][0]["table"]["identity"] == ["users"]
                 and json.loads(text)["sources"][0]["column"] == "id")
+            await check("inspect_mcp_sse_trace", {
+                "content": 'data: {"jsonrpc":"2.0","id":1,"result":{}}\n\n',
+                "mode": "streamable-http"},
+                lambda text: json.loads(text)["valid"] is True
+                and json.loads(text)["counts"]["response"] == 1)
+            recovery = [
+                {"method": "POST", "initialize": True, "response_status": 200,
+                 "response_headers": {"Mcp-Session-Id": "session"}},
+                {"method": "POST", "response_status": 200,
+                 "request_headers": {"Mcp-Session-Id": "session", "Mcp-Protocol-Version": "2025-11-25"},
+                 "event_ids": ["event-1"], "stream": "call"},
+                {"method": "GET", "response_status": 200,
+                 "request_headers": {"Mcp-Session-Id": "session", "Mcp-Protocol-Version": "2025-11-25",
+                                     "Last-Event-ID": "event-1"}, "stream": "call"},
+            ]
+            await check("inspect_mcp_session_recovery", {"exchanges": json.dumps(recovery)},
+                        lambda text: json.loads(text)["valid"] is True
+                        and json.loads(text)["counts"]["resumption"] == 1)
+            retry_manifest = {"tools": [{"name": "demo", "inputSchema": {"type": "object"}}]}
+            retry_attempts = [
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                 "params": {"name": "demo", "arguments": {"value": 1}}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                 "params": {"name": "demo", "arguments": {"value": 1}}},
+            ]
+            await check("inspect_mcp_tool_retry_risk", {
+                "manifest": json.dumps(retry_manifest), "attempts": json.dumps(retry_attempts)},
+                lambda text: json.loads(text)["valid"] is True
+                and json.loads(text)["repeat_count"] == 1)
             print(f"PASS: {successful_calls} authenticated tool calls returned correct results")
 
 
