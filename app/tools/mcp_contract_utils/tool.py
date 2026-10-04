@@ -1,6 +1,6 @@
 from app.tools.report_utils.tool import _run
 
-from . import catalogs, flows, integration, observability, runtime, service, transport
+from . import catalogs, flows, integration, lifecycle, observability, runtime, service, transport
 
 
 def register(mcp):
@@ -313,3 +313,51 @@ def register(mcp):
         """
         return await _run(flows.inspect_mcp_cache_invalidation,
                           request, response, notification, limit)
+
+    @mcp.tool()
+    async def validate_mcp_initialize_roundtrip(request: str, response: str,
+                                                initialized: str = "", supported_versions: str = "",
+                                                limit: int = 20) -> str:
+        """Check a supplied 2025-era initialize exchange and optional client
+        supported-version list. A successful exchange requires the initialized
+        notification. Does not connect or expose identities. JSON inputs at most
+        200000 chars; limit 1-50.
+        """
+        return await _run(lifecycle.validate_mcp_initialize_roundtrip,
+                          request, response, initialized, supported_versions, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_resource_subscription_flow(subscribe_request: str, subscribe_result: str,
+                                                      notifications: str, unsubscribe_request: str = "",
+                                                      unsubscribe_result: str = "", limit: int = 20) -> str:
+        """Check a supplied 2025 resource subscribe acknowledgment, 0-100
+        matching update notifications and optional unsubscribe acknowledgment.
+        Assumes updates are filtered for this subscription; no live delivery or
+        URI value echo. JSON inputs at most 200000 chars; limit 1-50.
+        """
+        return await _run(lifecycle.inspect_mcp_resource_subscription_flow,
+                          subscribe_request, subscribe_result, notifications,
+                          unsubscribe_request, unsubscribe_result, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_cancellation_flow(request: str, cancellation: str,
+                                            late_response: str = "", task_augmented: bool = False,
+                                            limit: int = 20) -> str:
+        """Check a supplied 2025 notifications/cancelled message against one
+        request. Optional late response is treated as a possible race;
+        task_augmented is caller-declared. No execution or identity echo.
+        JSON inputs at most 200000 chars; limit 1-50.
+        """
+        return await _run(lifecycle.inspect_mcp_cancellation_flow,
+                          request, cancellation, late_response, task_augmented, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_task_notification_sequence(listen_request: str, notifications: str,
+                                                     limit: int = 20) -> str:
+        """Check 0-100 supplied 2026 notifications/tasks for listen-stream ID,
+        subscribed task IDs, payload shape and per-task status progression.
+        Does not inspect stream acknowledgment or prove delivery. IDs and
+        payloads omitted; JSON inputs at most 200000 chars; limit 1-50.
+        """
+        return await _run(lifecycle.inspect_mcp_task_notification_sequence,
+                          listen_request, notifications, limit)

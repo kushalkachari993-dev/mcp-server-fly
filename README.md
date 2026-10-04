@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 157 tools.
+The server registers 161 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -154,6 +154,10 @@ The server registers 157 tools.
 - `validate_mcp_call_roundtrip(request, response, protocol_version, limit)` - correlate a supplied tools/call request and response, distinguishing JSON-RPC errors from tool-level errors offline.
 - `inspect_mcp_task_update_roundtrip(snapshot, update_request, update_result, limit)` - check supplied 2026 input-required task responses and update acknowledgment offline.
 - `inspect_mcp_cache_invalidation(request, response, notification, limit)` - determine whether a supplied 2026 change notification invalidates one cached result offline.
+- `validate_mcp_initialize_roundtrip(request, response, initialized, supported_versions, limit)` - check a supplied 2025 initialize exchange and client version support offline.
+- `inspect_mcp_resource_subscription_flow(subscribe_request, subscribe_result, notifications, unsubscribe_request, unsubscribe_result, limit)` - correlate a supplied 2025 resource subscription and updates offline.
+- `inspect_mcp_cancellation_flow(request, cancellation, late_response, task_augmented, limit)` - check a supplied 2025 cancellation notification and possible late response offline.
+- `inspect_mcp_task_notification_sequence(listen_request, notifications, limit)` - check supplied 2026 task notifications and per-task status progression offline.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1549,6 +1553,48 @@ Each JSON input is limited to 200,000 characters, 20,000 nodes and depth 50;
 Specifications: [MCP tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools),
 [MCP Tasks extension](https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks),
 [MCP caching](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching).
+
+MCP lifecycle and notification diagnostics
+------------------------------------------
+
+```text
+validate_mcp_initialize_roundtrip(request=initialize_request_json, response=initialize_response_json, initialized=initialized_notification_json, supported_versions='["2025-11-25"]')
+inspect_mcp_resource_subscription_flow(subscribe_request=subscribe_request_json, subscribe_result=subscribe_ack_json, notifications=resource_update_notifications_json)
+inspect_mcp_cancellation_flow(request=in_flight_request_json, cancellation=cancel_notification_json, late_response="")
+inspect_mcp_task_notification_sequence(listen_request=listen_request_json, notifications=task_notifications_json)
+```
+
+These four tools analyze supplied messages offline; they do not open a session,
+subscribe, cancel work or receive notifications. Initialize inspection checks
+the 2025-era request/response ID, required identity and capability shapes,
+negotiated version, and `notifications/initialized`. A different server version
+is not automatically an error; provide `supported_versions` to check whether
+the client can use it. A successful exchange without the initialized
+notification is incomplete. A JSON-RPC error is reported as an error outcome,
+not as a malformed envelope.
+
+Legacy resource-subscription inspection checks one `resources/subscribe`
+acknowledgment, 0-100 captured `notifications/resources/updated` messages for
+the exact supplied URI, and an optional paired `resources/unsubscribe`
+exchange. The updates should be filtered to that subscription; this tool
+cannot prove delivery completeness or order relative to unsubscribe.
+Cancellation inspection checks a 2025 `notifications/cancelled` request ID and
+optional late response. A late response may race with cancellation and is not
+automatically invalid. Set `task_augmented=True` when the caller knows the
+request became a task; those require `tasks/cancel` instead.
+
+Task-notification inspection checks up to 100 supplied 2026
+`notifications/tasks` messages against one `subscriptions/listen` request,
+including subscribed task IDs, subscription ID, timestamps and terminal status
+continuity. It does not check the listen acknowledgment; use
+`validate_mcp_subscription_stream` for that. All four omit IDs, URIs, names,
+reasons and payloads from output. Each JSON input is limited to 200,000
+characters, 20,000 nodes and depth 50; `limit` accepts 1-50. No new API keys
+or dependencies are needed. Specifications:
+[2025 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
+[2025 resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources),
+[2025 cancellation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation),
+[2026 Tasks extension](https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks).
 
 Deployment configuration comparison examples
 --------------------------------------------
