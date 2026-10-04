@@ -1,6 +1,6 @@
 from app.tools.report_utils.tool import _run
 
-from . import catalogs, integration, runtime, service, transport
+from . import catalogs, integration, observability, runtime, service, transport
 
 
 def register(mcp):
@@ -228,3 +228,46 @@ def register(mcp):
         """
         return await _run(transport.inspect_mcp_auth_discovery, challenge,
                           resource_metadata, authorization_metadata, resource_url, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_progress_sequence(request: str, notifications: str,
+                                            protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Check 0-100 supplied progress notifications for token matching and
+        strictly increasing values against one request. No live work or
+        message/token echo. Supports 2025-11-25 and 2026-07-28; JSON inputs
+        at most 200000 chars and 20000 nodes; limit 1-50.
+        """
+        return await _run(observability.inspect_mcp_progress_sequence,
+                          request, notifications, protocol_version, limit)
+
+    @mcp.tool()
+    async def validate_mcp_subscription_stream(request: str, events: str, limit: int = 20) -> str:
+        """Check 1-100 supplied 2026 subscriptions/listen stream frames for
+        first acknowledgment, honored filters, matching subscription IDs and
+        selected notification kinds. Does not connect or authorize. IDs, URIs
+        and payloads are omitted; JSON inputs at most 200000 chars; limit 1-50.
+        """
+        return await _run(observability.validate_mcp_subscription_stream, request, events, limit)
+
+    @mcp.tool()
+    async def validate_mcp_cache_hints(method: str, responses: str,
+                                       user_scoped: bool = False, limit: int = 20) -> str:
+        """Check 2026 ttlMs/cacheScope on 1-20 supplied cacheable results,
+        including scope consistency across one list's pages. user_scoped is
+        caller-declared and requires private scope; content is not inspected
+        or returned. JSON at most 200000 chars; limit 1-50.
+        """
+        return await _run(observability.validate_mcp_cache_hints,
+                          method, responses, user_scoped, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_task_lifecycle(create_result: str, snapshots: str,
+                                         cancel_request: str = "", cancel_result: str = "",
+                                         limit: int = 20) -> str:
+        """Check one supplied 2026 Tasks extension creation result, 0-100
+        ordered tasks/get snapshots and optional paired tasks/cancel exchange.
+        Inspect statuses, timestamps and terminal payload shape, not execution
+        or auth. IDs and payloads omitted; JSON inputs at most 200000 chars.
+        """
+        return await _run(observability.inspect_mcp_task_lifecycle,
+                          create_result, snapshots, cancel_request, cancel_result, limit)

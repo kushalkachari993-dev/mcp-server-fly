@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 149 tools.
+The server registers 153 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -146,6 +146,10 @@ The server registers 149 tools.
 - `validate_mcp_request_metadata(request, limit)` - check selected required 2026 per-request metadata without returning client identity.
 - `inspect_mcp_input_required_roundtrip(initial_request, result, retry_request, limit)` - check selected 2026 input-required result and retry structure without exposing state or content.
 - `inspect_mcp_auth_discovery(challenge, resource_metadata, authorization_metadata, resource_url, limit)` - inspect supplied Bearer challenge and OAuth discovery metadata offline.
+- `inspect_mcp_progress_sequence(request, notifications, protocol_version, limit)` - check supplied MCP progress token matching and increasing values offline.
+- `validate_mcp_subscription_stream(request, events, limit)` - check a supplied 2026 listen stream's acknowledgment, filters, and notification IDs offline.
+- `validate_mcp_cache_hints(method, responses, user_scoped, limit)` - check supplied 2026 cache TTL and scope hints across one result or list pages offline.
+- `inspect_mcp_task_lifecycle(create_result, snapshots, cancel_request, cancel_result, limit)` - check supplied 2026 Tasks creation, polling, and optional cancel acknowledgment offline.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1467,6 +1471,48 @@ nodes and depth 50; header maps at 100 entries; `limit` at 1-50.
 Specifications: [Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http),
 [MRTR](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr),
 [authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+
+MCP progress, subscriptions, caching and Tasks examples
+--------------------------------------------------------
+
+```text
+inspect_mcp_progress_sequence(request=call_with_progress_token_json, notifications=progress_notifications_json)
+validate_mcp_subscription_stream(request=listen_request_json, events=ordered_stream_frames_json)
+validate_mcp_cache_hints(method="tools/list", responses=complete_list_pages_json, user_scoped=False)
+inspect_mcp_task_lifecycle(create_result=task_creation_json, snapshots=ordered_task_get_results_json)
+```
+
+These four tools analyze supplied JSON offline; they do not change this server's
+MCP protocol support. Progress inspection supports `2025-11-25` and
+`2026-07-28`, checking that notifications use the request's progress token and
+strictly increasing nonnegative values. It cannot prove the request was still
+active when an update was sent. Subscription inspection checks one 2026
+`subscriptions/listen` capture with 1-100 ordered frames: the first-frame
+acknowledgment, declared and honored filters, per-frame subscription ID, and
+selected change notifications. It cannot prove authorization or delivery of
+events that were never captured. Task notifications are correlated by ID only;
+use the task lifecycle tool to inspect task status snapshots.
+
+Cache inspection accepts 1-20 results for one cacheable 2026 method. For list
+methods, the entries represent pages of the same request; it checks nonnegative
+integer `ttlMs`, public/private `cacheScope`, and a consistent scope across
+pages. `user_scoped=True` flags a public declaration, but the caller must know
+whether the data is user-specific. The tool does not examine content or prove
+that a public scope is safe. `input_required` results and retries with input
+responses or request state must not be cached.
+
+Task inspection accepts a creation result and 0-100 ordered `tasks/get`
+snapshots, with an optional paired `tasks/cancel` request and response. It
+checks selected status payloads, stable task ID and creation time, nondecreasing
+update time, and terminal status continuity. A cancel acknowledgment does not
+guarantee that the task will finish as `cancelled`. It does not check task
+authorization, polling intervals or `tasks/update` input exchange. Task IDs,
+input requests, messages and results are omitted from output. Each JSON input
+is limited to 200,000 characters, 20,000 nodes and depth 50; `limit` accepts
+1-50. No new dependencies or API keys are needed. Specifications:
+[MCP progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress),
+[MCP caching](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching),
+[MCP Tasks extension](https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks).
 
 Deployment configuration comparison examples
 --------------------------------------------
