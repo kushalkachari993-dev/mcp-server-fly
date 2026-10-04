@@ -1,6 +1,6 @@
 from app.tools.report_utils.tool import _run
 
-from . import catalogs, service
+from . import catalogs, runtime, service
 
 
 def register(mcp):
@@ -91,3 +91,54 @@ def register(mcp):
         limit 1-50. Supports 2025-11-25 and 2026-07-28.
         """
         return await _run(catalogs.compare_mcp_prompt_manifests, before, after, protocol_version, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_server_capabilities(response: str, protocol_version: str = "2025-11-25",
+                                              limit: int = 20) -> str:
+        """Inspect a supplied 2025 initialize or 2026 server/discover result.
+        Summarize known server capabilities and version declarations; omit
+        instructions and extension settings. No connection or trust verdict.
+        Input at most 200000 chars and 20000 nodes; limit 1-50.
+        """
+        return await _run(runtime.inspect_mcp_server_capabilities, response, protocol_version, limit)
+
+    @mcp.tool()
+    async def compare_mcp_server_capabilities(before: str, after: str,
+                                              protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Compare selected declarations in two supplied initialize or
+        server/discover results of the same protocol era. Omit instructions,
+        extension settings and identity values. No compatibility verdict.
+        Each input at most 200000 chars; limit 1-50.
+        """
+        return await _run(runtime.compare_mcp_server_capabilities, before, after, protocol_version, limit)
+
+    @mcp.tool()
+    async def validate_mcp_prompt_arguments(manifest: str, prompt_name: str, arguments: str,
+                                            protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Check supplied prompts/get string arguments against one prompt's
+        required declarations in a supplied prompts/list page. Undeclared
+        names are reported, not rejected. No prompt fetch or value echo.
+        Each JSON input at most 200000 chars; limit 1-50.
+        """
+        return await _run(runtime.validate_mcp_prompt_arguments, manifest, prompt_name,
+                          arguments, protocol_version, limit)
+
+    @mcp.tool()
+    async def validate_mcp_resource_read_result(response: str, protocol_version: str = "2025-11-25",
+                                                limit: int = 20) -> str:
+        """Check selected resources/read result structure, content kinds,
+        base64 syntax and 2026 cache hints without exposing resource contents
+        or URIs. Input-required results remain unchecked. No dereference.
+        Input at most 200000 chars, 500 entries; limit 1-50.
+        """
+        return await _run(runtime.validate_mcp_resource_read_result, response, protocol_version, limit)
+
+    @mcp.tool()
+    async def validate_mcp_prompt_get_result(response: str, protocol_version: str = "2025-11-25",
+                                             limit: int = 20) -> str:
+        """Check selected prompts/get message roles and content-block shapes
+        without returning text, media data or embedded resource contents.
+        Input-required results remain unchecked. No prompt rendering.
+        Input at most 200000 chars, 500 messages; limit 1-50.
+        """
+        return await _run(runtime.validate_mcp_prompt_get_result, response, protocol_version, limit)

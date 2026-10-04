@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 136 tools.
+The server registers 141 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -133,6 +133,11 @@ The server registers 136 tools.
 - `compare_mcp_resource_manifests(before_resources, after_resources, before_templates, after_templates, protocol_version, limit)` - compare complete supplied MCP resource/template catalogs by exact URI identity offline.
 - `inspect_mcp_prompt_manifest(manifest, protocol_version, limit)` - inspect supplied MCP prompt names and required argument declarations without prompt content.
 - `compare_mcp_prompt_manifests(before, after, protocol_version, limit)` - compare complete supplied MCP prompt/argument declarations by exact names offline.
+- `inspect_mcp_server_capabilities(response, protocol_version, limit)` - inspect selected declarations in a supplied 2025 initialize or 2026 server/discover result offline.
+- `compare_mcp_server_capabilities(before, after, protocol_version, limit)` - compare selected supplied MCP server capability declarations offline.
+- `validate_mcp_prompt_arguments(manifest, prompt_name, arguments, protocol_version, limit)` - check supplied prompt argument names, required declarations and string values offline.
+- `validate_mcp_resource_read_result(response, protocol_version, limit)` - check selected supplied resources/read result structure and base64 syntax without exposing content.
+- `validate_mcp_prompt_get_result(response, protocol_version, limit)` - check selected supplied prompts/get roles and content-block shapes without exposing content.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1357,6 +1362,44 @@ and depth 50; each list at 500 entries, prompt arguments at 500 per prompt;
 `limit` at 1-50 displayed rows, output at 100,000 characters. No new keys or
 dependencies are needed. Specifications: [MCP resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources),
 [MCP prompts](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts).
+
+MCP response contract examples
+------------------------------
+
+```text
+inspect_mcp_server_capabilities(response='{"protocolVersion":"2025-11-25","serverInfo":{"name":"example","version":"1.0"},"capabilities":{"tools":{}}}')
+compare_mcp_server_capabilities(before=old_initialize_json, after=new_initialize_json)
+validate_mcp_prompt_arguments(manifest='{"prompts":[{"name":"review","arguments":[{"name":"code","required":true}]}]}', prompt_name="review", arguments='{"code":"sample"}')
+validate_mcp_resource_read_result(response='{"contents":[{"uri":"docs://guide","text":"Hello"}]}')
+validate_mcp_prompt_get_result(response='{"messages":[{"role":"user","content":{"type":"text","text":"Hello"}}]}')
+```
+
+These tools inspect supplied JSON only; they never connect to another MCP
+server, fetch a prompt/resource, or execute returned content. Capability tools
+select the 2025 `initialize` result when `protocol_version="2025-11-25"` and
+the 2026 `server/discover` result when `protocol_version="2026-07-28"`.
+The 2026 discovery result must include `resultType`, `supportedVersions`,
+`ttlMs` and `cacheScope`; 2025 initialize uses `protocolVersion` and
+`serverInfo`. Unknown capability fields are not compared. Server identity is
+self-reported, not a trust signal. Instructions and extension settings are
+omitted from output, though names and selected version/flag fields are shown.
+
+Prompt arguments must be JSON string values. Missing required or non-string
+arguments fail validation; undeclared names are reported but not rejected.
+Content validators check selected response shapes and base64 syntax, not URI
+reachability, MIME truth, media decoding, injection safety, or complete MCP
+conformance. A 2026 `input_required` result is reported as unchecked, not as a
+completed response. Content values, resource URIs, and prompt descriptions are
+omitted; prompt and argument names may still be sensitive.
+
+Each JSON input is capped at 200,000 characters, 20,000 nodes and depth 50;
+resource contents, prompt messages and argument objects are capped at 500
+entries, capability maps at 100 entries; `limit` at 1-50 errors or changes,
+output at 100,000 characters. No new keys or dependencies are needed.
+Specifications: [MCP 2025 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
+[MCP 2026 discovery](https://modelcontextprotocol.io/specification/2026-07-28/server/discover),
+[MCP 2026 resources](https://modelcontextprotocol.io/specification/2026-07-28/server/resources),
+[MCP 2025 prompts](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts).
 
 Deployment configuration comparison examples
 --------------------------------------------
