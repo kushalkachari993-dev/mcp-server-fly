@@ -23,7 +23,7 @@ def _auth(value):
     return kind
 
 
-def _target(value, summary):
+def _target(value, summary, path_maximum=1000):
     if value is None:
         return {"status": "missing", "scheme": None, "host": None, "port": None, "path": None}
     source = "string"
@@ -36,12 +36,12 @@ def _target(value, summary):
         raise ValueError("Postman URL must be text of at most 10000 characters without controls")
     if "{{" in value or "}}" in value:
         return {"status": "unresolved_template", "scheme": None, "host": None, "port": None, "path": None}
-    target = _har_url(value, summary)
+    target = _har_url(value, summary, path_maximum)
     supported = target.pop("supported")
     return {"status": "http" if supported else "unsupported", "source": source, **target}
 
 
-def inspect_collection(content, limit):
+def inspect_collection(content, limit, *, _records=None):
     summary, data = _Summary(content, limit), _json_report(content)
     info = _mapping(data.get("info"))
     schema = info.get("schema")
@@ -55,7 +55,10 @@ def inspect_collection(content, limit):
     folders, requests, methods, auth_counts, statuses = [], [], Counter(), Counter(), Counter()
     item_count = 0
 
-    def visit(children, ancestry, inherited, inherited_source):
+    if _records is not None:
+        _records.update({"folders": [], "requests": []})
+
+    def visit(children, ancestry, ancestry_names, inherited, inherited_source):
         nonlocal item_count
         for raw in children:
             item_count += 1
@@ -73,7 +76,11 @@ def inspect_collection(content, limit):
                 folders.append({"index": index, "name": item_name, "parent_folder_index": ancestry[-1] if ancestry else None,
                                 "declared_auth_type": declared, "inherited_auth_type": inherited,
                                 "effective_declared_auth_type": effective, "auth_source": source})
-                visit(_array(item["item"], 1000), [*ancestry, index], effective, source)
+                if _records is not None:
+                    _records["folders"].append({"name": item.get("name"), "ancestry": ancestry_names,
+                                                 "declared_auth_type": declared, "effective_auth_type": effective,
+                                                 "auth_source": source})
+                visit(_array(item["item"], 1000), [*ancestry, index], [*ancestry_names, item.get("name")], effective, source)
                 continue
             request = item["request"]
             if isinstance(request, str):
@@ -86,7 +93,7 @@ def inspect_collection(content, limit):
                 if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}", method):
                     raise ValueError("Invalid Postman HTTP method token")
             effective = declared if declared is not None else inherited
-            target = _target(url, summary)
+            target = _target(url, summary, 10000 if _records is not None else 1000)
             if method is not None:
                 methods[method] += 1
             auth_counts[effective if effective is not None else "unknown"] += 1
@@ -94,8 +101,13 @@ def inspect_collection(content, limit):
             requests.append({"index": len(requests), "name": item_name, "folder_path": list(ancestry), "method": method,
                              "target": target, "declared_auth_type": declared, "inherited_auth_type": inherited,
                              "effective_declared_auth_type": effective, "auth_source": "request" if declared is not None else inherited_source})
+            if _records is not None:
+                _records["requests"].append({"name": item.get("name"), "ancestry": ancestry_names, "method": method,
+                                              "target": target, "declared_auth_type": declared,
+                                              "effective_auth_type": effective,
+                                              "auth_source": "request" if declared is not None else inherited_source})
 
-    visit(items, [], collection_auth, "collection" if collection_auth is not None else "unknown")
+    visit(items, [], [], collection_auth, "collection" if collection_auth is not None else "unknown")
     return {"format": "Postman", "version": "2.1.0", "name": name, "collection_auth_type": collection_auth,
             "item_count": item_count, "folder_count": len(folders), "request_count": len(requests),
             "method_counts": dict(sorted(methods.items())), "missing_method_count": sum(row["method"] is None for row in requests),

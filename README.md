@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 120 tools.
+The server registers 124 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -117,6 +117,10 @@ The server registers 120 tools.
 - `validate_graphql_operation(schema_sdl, document, limit)` - statically validate all supplied GraphQL operations/fragments without executing resolvers or coercing runtime variables.
 - `compare_graphql_schemas(before_sdl, after_sdl, limit)` - report GraphQL-core breaking/dangerous schema changes and separate operation-root changes offline.
 - `inspect_postman_collection(content, limit)` - inspect supplied Postman Collection v2.1 folders, requests, sanitized targets, and declared/inherited authentication types offline.
+- `inspect_openapi_document(content, limit)` - inspect supplied OpenAPI 3.0/3.1 JSON or YAML operations, parameters, media, statuses, security and reference status offline.
+- `compare_openapi_contracts(before, after, limit)` - compare selected supplied OpenAPI declarations without claiming full compatibility.
+- `compare_postman_collections(before, after, limit)` - compare Postman v2.1 methods, sanitized targets and auth types by full folder/name identity offline.
+- `validate_openapi_json_body(spec, path, method, direction, body, status, media_type, limit)` - validate supplied JSON against a selected OpenAPI 3.1 operation schema offline.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1186,6 +1190,50 @@ References: [GraphQL-core utilities](https://graphql-core-3.readthedocs.io/en/st
 [validation](https://graphql-core-3.readthedocs.io/en/stable/modules/validation.html),
 [version compatibility](https://pypi.org/project/graphql-core/), and
 [Postman Collection v2.1 schema](https://schema.postman.com/collection/json/v2.1.0/draft-07/collection.json).
+
+API contract safety examples
+----------------------------
+
+```text
+inspect_openapi_document(content='{"openapi":"3.1.0","info":{"title":"Demo","version":"1"},"paths":{"/items":{"post":{"requestBody":{"content":{"application/json":{"schema":{"type":"object","required":["id"],"properties":{"id":{"type":"integer"}}}}}},"responses":{"200":{"description":"ok"}}}}}}')
+compare_openapi_contracts(before=old_spec_text, after=new_spec_text)
+compare_postman_collections(before=old_collection_json, after=new_collection_json)
+validate_openapi_json_body(spec=spec_text, path="/items", method="POST", direction="request", body='{"id":1}')
+```
+
+These four tools only inspect supplied text. They never fetch referenced URLs,
+read files, execute collection scripts, or call API endpoints. OpenAPI inspection
+accepts 3.0.x and 3.1.x JSON/YAML, including unquoted numeric YAML response
+statuses. It reports selected operation declarations, local/external reference
+counts, and unknown path/operation references; it is not complete OpenAPI
+validation. Local references in selected fields are resolved in memory. The
+comparison matches full path/method identities before shortening display text,
+reports selected differences, and marks unresolved references as uncertainty.
+Potential-breaking labels are advisory, not a compatibility verdict. Shallow
+schema shape changes can be detected, but other schema constraints may differ
+without appearing in the comparison.
+
+Postman comparison accepts the same v2.1 exports and bounds as the inspector.
+It matches exact full folder-name ancestry and item name. Duplicate or missing
+names remain ambiguous/unmatchable; ordering and renames are not inferred.
+Only method, sanitized HTTP scheme/host/port/path, and declared/effective auth
+types are compared. Userinfo, query/fragment, credential values, variables,
+headers, bodies, scripts, and examples are omitted. Unresolved templates and
+components-only URLs have no comparable target text. Names/hosts/paths and
+OpenAPI scopes may still be sensitive.
+
+Body validation supports **OpenAPI 3.1 only** because 3.0 uses different Schema
+Object semantics. Select `direction="request"` or `"response"`; `status` defaults
+to `"200"` for a response, and `media_type` defaults to `"application/json"`.
+The selected media must declare a schema. JSON Schema 2020-12 validation runs
+in the existing three-second offline worker. Resolvable
+`#/components/schemas/...` references are supported; external references,
+custom dialects, dynamic references, discriminator, nullable, and
+readOnly/writeOnly directionality are rejected. Unknown formats and extensions
+are not fully interpreted. Validation errors return JSON pointer paths, not
+body values or validator messages; paths can include caller-supplied property
+names. Each input is capped at 200,000 characters, OpenAPI analysis at 500
+operations, `limit` at 1-50, and output at 100,000 characters.
 
 Deployment configuration comparison examples
 --------------------------------------------
