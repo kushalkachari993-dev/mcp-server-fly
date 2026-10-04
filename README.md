@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 128 tools.
+The server registers 132 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -125,6 +125,10 @@ The server registers 128 tools.
 - `compare_asyncapi_contracts(before, after, limit)` - compare selected AsyncAPI channel/message/operation declarations by exact IDs without a full compatibility verdict.
 - `validate_asyncapi_json_message(spec, channel_id, message_id, payload, limit)` - validate supplied JSON against one AsyncAPI channel message's supported local schema offline.
 - `validate_cloudevents_json(content, limit)` - check selected CloudEvents 1.0 structured JSON envelope rules without returning attribute or payload values.
+- `inspect_mcp_tool_manifest(manifest, protocol_version, limit)` - summarize supplied MCP tools/list names, argument shapes, output-schema presence and untrusted hints offline.
+- `compare_mcp_tool_manifests(before, after, protocol_version, limit)` - compare complete supplied MCP tools/list snapshots by exact names and selected schema/metadata changes offline.
+- `validate_mcp_tool_arguments(manifest, tool_name, arguments, protocol_version, limit)` - validate supplied JSON call arguments against one tool's inputSchema without invoking it.
+- `validate_mcp_tool_result(manifest, tool_name, result, protocol_version, limit)` - check supplied structuredContent against one tool's outputSchema when applicable.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1279,6 +1283,42 @@ at 1-50, and output at 100,000 characters. No new keys or network access are
 needed. Standards: [AsyncAPI 3.0.0](https://www.asyncapi.com/docs/reference/specification/v3.0.0),
 [CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md),
 [CloudEvents JSON format](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/formats/json-format.md).
+
+MCP contract examples
+---------------------
+
+```text
+inspect_mcp_tool_manifest(manifest='{"tools":[{"name":"lookup","inputSchema":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]},"outputSchema":{"type":"object","properties":{"found":{"type":"boolean"}}}}]}')
+compare_mcp_tool_manifests(before=old_tools_list_json, after=new_tools_list_json)
+validate_mcp_tool_arguments(manifest=tools_list_json, tool_name="lookup", arguments='{"id":7}')
+validate_mcp_tool_result(manifest=tools_list_json, tool_name="lookup", result='{"content":[],"structuredContent":{"found":true}}')
+```
+
+These tools accept supplied `tools/list` result JSON or a JSON-RPC response
+containing it; they never connect to an MCP server or invoke a tool. Inspection
+reports one page and marks `nextCursor` as partial. Comparison requires complete
+snapshots (combine all pages first), matches full case-sensitive names, and
+flags exact supplied schema differences plus selected shallow shape changes.
+It does not infer renames or claim a compatibility verdict. Descriptions,
+schema bodies, default/example values, result content and credentials are not
+returned; tool/argument names and validation paths can still be sensitive.
+Annotations are untrusted hints, not proof of safety.
+
+Argument validation requires a JSON object and checks the selected `inputSchema`.
+Result validation checks only `structuredContent` against a declared
+`outputSchema`; tool errors, input-required results, and absent output schemas
+are reported as unchecked. It does not validate full JSON-RPC envelopes,
+content blocks, authorization or runtime behavior. `protocol_version` defaults
+to `2025-11-25`, where structured content must be an object; `2026-07-28`
+allows any JSON value and expects `resultType` on tool results. JSON Schema
+2020-12 (default) and explicit Draft 7 are supported with local references;
+remote/dynamic references and nested schema dialects/resource IDs are rejected.
+Validation uses the existing three-second worker and omits values and validator
+messages from errors. Unknown formats and extensions may not be checked.
+Each JSON input is capped at 200,000 characters, 20,000 nodes and depth 50;
+manifests at 500 tools; `limit` at 1-50; output at 100,000 characters. No new
+dependencies or API keys are needed. Specifications: [MCP 2025-11-25 tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools),
+[MCP 2026-07-28 tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools).
 
 Deployment configuration comparison examples
 --------------------------------------------
