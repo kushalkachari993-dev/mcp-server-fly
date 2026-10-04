@@ -39,8 +39,8 @@ def _list_result(content, field, label, protocol_version):
     if not isinstance(entries, list) or len(entries) > _MAX_ENTRIES:
         raise ValueError(f"{label} must contain an array of at most 500 entries")
     cursor = value.get("nextCursor")
-    if cursor is not None and (not isinstance(cursor, str) or not cursor or len(cursor) > 1000):
-        raise ValueError("MCP nextCursor must be a nonempty string when present")
+    if cursor is not None and (not isinstance(cursor, str) or len(cursor) > 1000):
+        raise ValueError("MCP nextCursor must be a string of at most 1000 characters when present")
     return entries, cursor is not None
 
 

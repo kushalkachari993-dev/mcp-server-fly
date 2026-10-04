@@ -64,8 +64,8 @@ def manifest(content, version):
     if not isinstance(tools, list) or len(tools) > MAX_TOOLS:
         raise ValueError("MCP tools/list must contain an array of at most 500 tools")
     cursor = value.get("nextCursor")
-    if cursor is not None and (not isinstance(cursor, str) or not cursor or len(cursor) > 1000):
-        raise ValueError("MCP nextCursor must be a nonempty string when present")
+    if cursor is not None and (not isinstance(cursor, str) or len(cursor) > 1000):
+        raise ValueError("MCP nextCursor must be a string of at most 1000 characters when present")
     rows = {}
     for raw in tools:
         if not isinstance(raw, dict):

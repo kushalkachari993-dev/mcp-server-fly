@@ -1,6 +1,6 @@
 from app.tools.report_utils.tool import _run
 
-from . import catalogs, runtime, service
+from . import catalogs, integration, runtime, service
 
 
 def register(mcp):
@@ -142,3 +142,47 @@ def register(mcp):
         Input at most 200000 chars, 500 messages; limit 1-50.
         """
         return await _run(runtime.validate_mcp_prompt_get_result, response, protocol_version, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_paginated_catalog(pages: str, kind: str, request_cursors: str = "",
+                                            protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Inspect 1-20 supplied MCP list-result pages for duplicate exact
+        identities, repeated nextCursor values and a terminal page. Optional
+        request_cursors is a JSON array with null first and the cursor used for
+        each later page; empty cursor strings are valid. No cursor or item
+        values returned. Input at most 200000 chars; limit 1-50.
+        """
+        return await _run(integration.inspect_mcp_paginated_catalog, pages, kind,
+                          request_cursors, protocol_version, limit)
+
+    @mcp.tool()
+    async def validate_mcp_completion_request(request: str, catalog: str,
+                                              protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Check selected completion/complete params and exact prompt or
+        resource reference against one supplied catalog page. Prompt argument
+        declarations are checked; URI template variables are not parsed.
+        Values and identities omitted; no server call. Each JSON input at
+        most 200000 chars; limit 1-50.
+        """
+        return await _run(integration.validate_mcp_completion_request, request,
+                          catalog, protocol_version, limit)
+
+    @mcp.tool()
+    async def validate_mcp_completion_result(response: str, protocol_version: str = "2025-11-25",
+                                             limit: int = 20) -> str:
+        """Check a supplied completion/complete result's values array,
+        optional total and hasMore consistency without returning suggestions.
+        Supports 2025-11-25 and 2026-07-28; no live completion request.
+        Input at most 200000 chars, 100 suggestions; limit 1-50.
+        """
+        return await _run(integration.validate_mcp_completion_result, response, protocol_version, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_jsonrpc_error(response: str, protocol_version: str = "2025-11-25",
+                                        limit: int = 20) -> str:
+        """Classify selected JSON-RPC and version-specific MCP error codes
+        in a supplied error response. Omit message, data values and request ID;
+        no live request or cause inference. Input at most 200000 chars and
+        20000 nodes; limit 1-50.
+        """
+        return await _run(integration.inspect_mcp_jsonrpc_error, response, protocol_version, limit)

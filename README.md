@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 141 tools.
+The server registers 145 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -138,6 +138,10 @@ The server registers 141 tools.
 - `validate_mcp_prompt_arguments(manifest, prompt_name, arguments, protocol_version, limit)` - check supplied prompt argument names, required declarations and string values offline.
 - `validate_mcp_resource_read_result(response, protocol_version, limit)` - check selected supplied resources/read result structure and base64 syntax without exposing content.
 - `validate_mcp_prompt_get_result(response, protocol_version, limit)` - check selected supplied prompts/get roles and content-block shapes without exposing content.
+- `inspect_mcp_paginated_catalog(pages, kind, request_cursors, protocol_version, limit)` - inspect supplied MCP list pages for duplicate identities, cursor reuse and terminal-page status offline.
+- `validate_mcp_completion_request(request, catalog, protocol_version, limit)` - check supplied completion/complete parameters against a prompt or resource catalog offline.
+- `validate_mcp_completion_result(response, protocol_version, limit)` - check supplied completion suggestions and count metadata without returning values.
+- `inspect_mcp_jsonrpc_error(response, protocol_version, limit)` - classify selected supplied JSON-RPC and MCP error codes without exposing messages or data.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1400,6 +1404,38 @@ Specifications: [MCP 2025 lifecycle](https://modelcontextprotocol.io/specificati
 [MCP 2026 discovery](https://modelcontextprotocol.io/specification/2026-07-28/server/discover),
 [MCP 2026 resources](https://modelcontextprotocol.io/specification/2026-07-28/server/resources),
 [MCP 2025 prompts](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts).
+
+MCP integration diagnostics examples
+------------------------------------
+
+```text
+inspect_mcp_paginated_catalog(pages='[{"tools":[{"name":"lookup"}],"nextCursor":""},{"tools":[{"name":"search"}]}]', kind="tools", request_cursors='[null,""]')
+validate_mcp_completion_request(request='{"ref":{"type":"ref/prompt","name":"review"},"argument":{"name":"code","value":"sam"}}', catalog='{"prompts":[{"name":"review","arguments":[{"name":"code"}]}]}')
+validate_mcp_completion_result(response='{"completion":{"values":["sample"],"total":1,"hasMore":false}}')
+inspect_mcp_jsonrpc_error(response='{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params"}}')
+```
+
+All four tools analyze supplied JSON offline. Pagination inspection accepts
+1-20 pages from `tools/list`, `resources/list`, `resources/templates/list` or
+`prompts/list`, with up to 500 entries per page. An empty `nextCursor` is still
+present, so it indicates another page; `request_cursors` can verify the supplied
+cursor chain, but without it the tool cannot establish a complete chain.
+Duplicate identities, reused cursors and pages after a terminal page are
+reported without returning names or cursor values. Earlier MCP catalog tools
+also now treat an empty `nextCursor` as a partial page.
+
+Completion request validation checks one supplied catalog page. A missing
+reference in a partial catalog remains indeterminate; prompt argument names
+are checked, but resource URI-template variables are not parsed. Completion
+result validation checks selected fields and optional total/hasMore
+consistency, with at most 100 suggestions. Error inspection classifies
+standard JSON-RPC and selected MCP-version-specific codes without returning
+messages, data or request IDs. These checks do not validate full protocol
+conformance, execute tools, or contact an MCP server. JSON inputs are limited
+to 200,000 characters, 20,000 nodes and depth 50; `limit` accepts 1-50.
+Both `2025-11-25` and `2026-07-28` are supported, with no new keys or
+dependencies. Specifications: [MCP pagination](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination),
+[MCP completion](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion).
 
 Deployment configuration comparison examples
 --------------------------------------------
