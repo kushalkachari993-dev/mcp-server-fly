@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 153 tools.
+The server registers 157 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -150,6 +150,10 @@ The server registers 153 tools.
 - `validate_mcp_subscription_stream(request, events, limit)` - check a supplied 2026 listen stream's acknowledgment, filters, and notification IDs offline.
 - `validate_mcp_cache_hints(method, responses, user_scoped, limit)` - check supplied 2026 cache TTL and scope hints across one result or list pages offline.
 - `inspect_mcp_task_lifecycle(create_result, snapshots, cancel_request, cancel_result, limit)` - check supplied 2026 Tasks creation, polling, and optional cancel acknowledgment offline.
+- `validate_mcp_tool_content_blocks(result, protocol_version, limit)` - check supplied completed tool result text, media, resource-link and embedded-resource block shapes offline.
+- `validate_mcp_call_roundtrip(request, response, protocol_version, limit)` - correlate a supplied tools/call request and response, distinguishing JSON-RPC errors from tool-level errors offline.
+- `inspect_mcp_task_update_roundtrip(snapshot, update_request, update_result, limit)` - check supplied 2026 input-required task responses and update acknowledgment offline.
+- `inspect_mcp_cache_invalidation(request, response, notification, limit)` - determine whether a supplied 2026 change notification invalidates one cached result offline.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1513,6 +1517,38 @@ is limited to 200,000 characters, 20,000 nodes and depth 50; `limit` accepts
 [MCP progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress),
 [MCP caching](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching),
 [MCP Tasks extension](https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks).
+
+MCP tool content and roundtrip examples
+---------------------------------------
+
+```text
+validate_mcp_tool_content_blocks(result='{"content":[{"type":"text","text":"done"}]}')
+validate_mcp_call_roundtrip(request=tools_call_request_json, response=tools_call_response_json)
+inspect_mcp_task_update_roundtrip(snapshot=input_required_task_json, update_request=tasks_update_request_json, update_result=tasks_update_ack_json)
+inspect_mcp_cache_invalidation(request=cacheable_request_json, response=cached_result_json, notification=change_notification_json)
+```
+
+These four tools inspect supplied JSON only; they do not invoke a server or
+modify a cache. Content-block validation supports the 2025 and 2026 protocol
+versions and checks text, image, audio, resource links and embedded resources.
+It validates base64 syntax but does not decode media semantics or dereference
+URIs. Call-roundtrip validation matches JSON-RPC IDs and reports `success`,
+`tool_error`, `jsonrpc_error`, `input_required` or `task` as distinct outcomes.
+Use the existing `validate_mcp_tool_result` for `structuredContent` schema
+validation.
+
+Task-update inspection checks a 2026 `input_required` snapshot against one
+`tasks/update` exchange. It permits partial input responses and counts unknown
+or superseded keys, which servers may ignore. An acknowledgment does not imply
+that the task's visible status has advanced. Cache invalidation matches list
+change notifications to their list method, and `resources/updated` to an exact
+`resources/read` URI. Retries with `inputResponses` or `requestState` are not
+cacheable. These tools omit supplied IDs, keys, URIs, payloads and error text.
+Each JSON input is limited to 200,000 characters, 20,000 nodes and depth 50;
+`limit` accepts 1-50. No new dependencies or API keys are needed.
+Specifications: [MCP tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools),
+[MCP Tasks extension](https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks),
+[MCP caching](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching).
 
 Deployment configuration comparison examples
 --------------------------------------------

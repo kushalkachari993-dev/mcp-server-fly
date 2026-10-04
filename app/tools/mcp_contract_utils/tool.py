@@ -1,6 +1,6 @@
 from app.tools.report_utils.tool import _run
 
-from . import catalogs, integration, observability, runtime, service, transport
+from . import catalogs, flows, integration, observability, runtime, service, transport
 
 
 def register(mcp):
@@ -271,3 +271,45 @@ def register(mcp):
         """
         return await _run(observability.inspect_mcp_task_lifecycle,
                           create_result, snapshots, cancel_request, cancel_result, limit)
+
+    @mcp.tool()
+    async def validate_mcp_tool_content_blocks(result: str,
+                                               protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Validate supplied completed tools/call content blocks: text, image,
+        audio, resource_link and embedded resource. No media decoding, URI
+        fetching or structuredContent validation. Values omitted. JSON input
+        at most 200000 chars and 500 blocks; limit 1-50.
+        """
+        return await _run(flows.validate_mcp_tool_content_blocks, result, protocol_version, limit)
+
+    @mcp.tool()
+    async def validate_mcp_call_roundtrip(request: str, response: str,
+                                          protocol_version: str = "2025-11-25", limit: int = 20) -> str:
+        """Check a supplied tools/call request and JSON-RPC response ID,
+        selected shapes and outcome. Distinguishes JSON-RPC error from a
+        successful result with isError. No tool invocation or content check;
+        values omitted. JSON inputs at most 200000 chars; limit 1-50.
+        """
+        return await _run(flows.validate_mcp_call_roundtrip, request, response, protocol_version, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_task_update_roundtrip(snapshot: str, update_request: str,
+                                                update_result: str, limit: int = 20) -> str:
+        """Check a supplied 2026 input_required task snapshot, tasks/update
+        request and acknowledgment, including response-key coverage. Partial
+        responses are allowed; no live task changes or payload echo. JSON
+        inputs at most 200000 chars; limit 1-50.
+        """
+        return await _run(flows.inspect_mcp_task_update_roundtrip,
+                          snapshot, update_request, update_result, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_cache_invalidation(request: str, response: str,
+                                             notification: str, limit: int = 20) -> str:
+        """Match a supplied 2026 cacheable request/result and one change
+        notification, including exact resource URI matching and MRTR retry
+        exclusion. Does not observe delivery or mutate a cache. Values omitted;
+        JSON inputs at most 200000 chars; limit 1-50.
+        """
+        return await _run(flows.inspect_mcp_cache_invalidation,
+                          request, response, notification, limit)
