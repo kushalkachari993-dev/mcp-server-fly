@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 145 tools.
+The server registers 149 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -142,6 +142,10 @@ The server registers 145 tools.
 - `validate_mcp_completion_request(request, catalog, protocol_version, limit)` - check supplied completion/complete parameters against a prompt or resource catalog offline.
 - `validate_mcp_completion_result(response, protocol_version, limit)` - check supplied completion suggestions and count metadata without returning values.
 - `inspect_mcp_jsonrpc_error(response, protocol_version, limit)` - classify selected supplied JSON-RPC and MCP error codes without exposing messages or data.
+- `validate_mcp_http_exchange(request, request_headers, response_status, response_headers, limit)` - check selected supplied 2026 Streamable HTTP headers against a request body and response shape offline.
+- `validate_mcp_request_metadata(request, limit)` - check selected required 2026 per-request metadata without returning client identity.
+- `inspect_mcp_input_required_roundtrip(initial_request, result, retry_request, limit)` - check selected 2026 input-required result and retry structure without exposing state or content.
+- `inspect_mcp_auth_discovery(challenge, resource_metadata, authorization_metadata, resource_url, limit)` - inspect supplied Bearer challenge and OAuth discovery metadata offline.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1437,6 +1441,33 @@ Both `2025-11-25` and `2026-07-28` are supported, with no new keys or
 dependencies. Specifications: [MCP pagination](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination),
 [MCP completion](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion).
 
+MCP transport and authorization examples
+----------------------------------------
+
+```text
+validate_mcp_request_metadata(request='{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}')
+validate_mcp_http_exchange(request=modern_request_json, request_headers='{"Content-Type":"application/json","Accept":"application/json, text/event-stream","MCP-Protocol-Version":"2026-07-28","Mcp-Method":"tools/list"}', response_status=200, response_headers='{"Content-Type":"application/json"}')
+inspect_mcp_input_required_roundtrip(initial_request=modern_call_json, result=input_required_json, retry_request=retry_json)
+inspect_mcp_auth_discovery(challenge='Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource"', resource_metadata=resource_metadata_json, authorization_metadata=authorization_metadata_json, resource_url="https://mcp.example/mcp")
+```
+
+These four tools inspect supplied 2026-era MCP traffic or OAuth discovery
+metadata; they make no network requests. The HTTP checker compares selected
+version/method/name headers with the JSON-RPC body and checks status/content
+type, but does not parse SSE streams or custom `Mcp-Param-*` headers. The
+metadata checker requires a per-request version and capability object; client
+identity is optional and never treated as trusted. The round-trip checker
+verifies selected `input_required` and retry structure, including an exact
+`requestState` echo, but cannot establish that state is authentic or safe.
+The authorization checker accepts one Bearer challenge and supplied protected
+resource and authorization-server metadata; it does not implement OAuth or
+validate tokens. All outputs omit header values, URLs, scope strings, request
+IDs and user content. JSON inputs are capped at 200,000 characters, 20,000
+nodes and depth 50; header maps at 100 entries; `limit` at 1-50.
+Specifications: [Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http),
+[MRTR](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr),
+[authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+
 Deployment configuration comparison examples
 --------------------------------------------
 
@@ -1708,9 +1739,11 @@ After deploying, test the live MCP connection and previously deployed tools:
 
 ```powershell
 uv run python scripts/test_deployed_mcp.py
+uv run python scripts/test_deployed_mcp.py --transport streamable-http
 ```
 
-The script reads `MCP_API_KEY` from the environment or the project's ignored
+The script defaults to legacy SSE; use `--transport streamable-http` after
+deploying the `/mcp` endpoint. It reads `MCP_API_KEY` from the environment or the project's ignored
 `.env` file. The local test suite uses mocked HTTP responses; the deployment
 script makes an authenticated MCP connection and fetches `https://example.com`.
 It also fetches the Django weblog RSS feed and the Python statistics documentation
@@ -1798,7 +1831,11 @@ MCP_API_KEY=
 
 `MCP_API_KEY` protects all MCP/tool routes. `/` and `/health` remain public so
 Fly.io health checks can work. If `MCP_API_KEY` is not set, authentication is
-disabled for local development.
+disabled for local development. Set `MCP_ALLOWED_HOSTS` and
+`MCP_ALLOWED_ORIGINS` to comma-separated allowlists when using another hostname
+or browser origin. The defaults cover `mcpsever.fly.dev` and local development.
+The server does not provide OAuth; `inspect_mcp_auth_discovery` only examines
+supplied metadata.
 
 Local run
 ---------
@@ -1813,6 +1850,16 @@ Health check:
 ```text
 http://localhost:8000/health
 ```
+
+The Streamable HTTP endpoint is `/mcp`; `/sse` and `/messages` remain available
+for existing clients. Both require `MCP_API_KEY` when it is configured. The
+installed MCP Python SDK serves the 2025-era protocol on `/mcp`; the offline
+2026 diagnostic tools do not upgrade the endpoint's protocol version. The
+client-side agents keep SSE as their default until deployment; select
+`--transport streamable-http` afterward.
+The old `MCP_SKIP_HOST_VALIDATION` setting is no longer used; remove that
+obsolete Fly secret when updating the deployment. Host and Origin requests
+are checked against the configured allowlists.
 
 Fly.io deploy
 -------------

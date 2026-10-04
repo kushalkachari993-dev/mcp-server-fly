@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 from dotenv import load_dotenv
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 
 
 DEFAULT_BASE_URL = "https://mcpsever.fly.dev"
@@ -25,15 +26,17 @@ def _text_from_tool_result(result) -> str:
     return "\n".join(parts)
 
 
-async def run_test(base_url: str, api_key: str) -> None:
+async def run_test(base_url: str, api_key: str, transport: str = "sse") -> None:
     base_url = base_url.rstrip("/") + "/"
-    sse_url = urljoin(base_url, "sse")
+    endpoint = urljoin(base_url, "mcp" if transport == "streamable-http" else "sse")
     headers = {"X-API-Key": api_key}
 
-    print(f"Connecting to MCP server: {sse_url}")
+    print(f"Connecting to MCP server: {endpoint}")
 
-    async with sse_client(sse_url, headers=headers, timeout=20) as streams:
-        async with ClientSession(*streams) as session:
+    connection = (streamablehttp_client(endpoint, headers=headers, timeout=20)
+                  if transport == "streamable-http" else sse_client(endpoint, headers=headers, timeout=20))
+    async with connection as streams:
+        async with ClientSession(streams[0], streams[1]) as session:
             initialize_result = await session.initialize()
             print(f"Connected: {initialize_result.serverInfo.name}")
             print(f"Protocol: {initialize_result.protocolVersion}")
@@ -64,6 +67,8 @@ async def run_test(base_url: str, api_key: str) -> None:
                 "compare_docker_compose", "compare_kubernetes_manifests", "compare_github_actions", "compare_fly_configs",
                 "profile_csv", "validate_csv_schema", "compare_csv_tables", "redact_csv_columns",
                 "inspect_sql_schema", "compare_sql_schemas", "transpile_sql", "extract_sql_lineage",
+                "validate_mcp_http_exchange", "validate_mcp_request_metadata",
+                "inspect_mcp_input_required_roundtrip", "inspect_mcp_auth_discovery",
             }
             missing = expected_tools - set(tool_names)
             if missing:
@@ -401,6 +406,8 @@ def main() -> None:
         default=os.getenv("MCP_API_KEY"),
         help="MCP API key. Defaults to MCP_API_KEY environment variable.",
     )
+    parser.add_argument("--transport", choices=("sse", "streamable-http"), default="sse",
+                        help="MCP transport; use streamable-http after deploying the /mcp endpoint.")
     args = parser.parse_args()
 
     if not args.api_key:
@@ -408,7 +415,7 @@ def main() -> None:
             "Missing API key. Set MCP_API_KEY or pass --api-key your_key."
         )
 
-    asyncio.run(asyncio.wait_for(run_test(args.base_url, args.api_key), timeout=240))
+    asyncio.run(asyncio.wait_for(run_test(args.base_url, args.api_key, args.transport), timeout=240))
 
 
 if __name__ == "__main__":

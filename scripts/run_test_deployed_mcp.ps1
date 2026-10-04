@@ -1,6 +1,7 @@
 param(
     [string]$ApiKey = $env:MCP_API_KEY,
-    [string]$BaseUrl = "https://mcpsever.fly.dev"
+    [string]$BaseUrl = "https://mcpsever.fly.dev",
+    [ValidateSet("sse", "streamable-http")][string]$Transport = "sse"
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,4 +23,4 @@ if (-not (Test-Path $python)) {
 $env:PYTHONPATH = "$sitePackages;$win32;$win32Lib"
 $env:MCP_API_KEY = $ApiKey
 
-& $python (Join-Path $projectRoot "scripts\test_deployed_mcp.py") --base-url $BaseUrl
+& $python (Join-Path $projectRoot "scripts\test_deployed_mcp.py") --base-url $BaseUrl --transport $Transport

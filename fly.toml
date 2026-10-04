@@ -2,8 +2,6 @@ app = 'mcpsever'
 primary_region = 'bom'
 
 [env]
-  MCP_SKIP_HOST_VALIDATION = "true"
-  ALLOWED_HOSTS = "*"
   PORT = "8000"
 
 [build]

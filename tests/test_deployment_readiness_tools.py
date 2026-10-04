@@ -155,7 +155,7 @@ hard_limit = 10
         data = json.loads(await self.call("inspect_fly_config", content=content))
         self.assertEqual(data["app"], "mcpsever")
         self.assertEqual(data["services"][0]["internal_port"], 8000)
-        self.assertIn("MCP_SKIP_HOST_VALIDATION", data["environment_names"])
+        self.assertNotIn("MCP_SKIP_HOST_VALIDATION", data["environment_names"])
 
     async def test_env_comparison_missing_unexpected_and_duplicates(self):
         template = 'TOKEN=hidden-token\nPORT=8000\nTOKEN=another-hidden-token\nOPTIONAL\n'

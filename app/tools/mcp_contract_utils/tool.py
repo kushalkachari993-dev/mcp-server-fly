@@ -1,6 +1,6 @@
 from app.tools.report_utils.tool import _run
 
-from . import catalogs, integration, runtime, service
+from . import catalogs, integration, runtime, service, transport
 
 
 def register(mcp):
@@ -186,3 +186,45 @@ def register(mcp):
         20000 nodes; limit 1-50.
         """
         return await _run(integration.inspect_mcp_jsonrpc_error, response, protocol_version, limit)
+
+    @mcp.tool()
+    async def validate_mcp_http_exchange(request: str, request_headers: str, response_status: int,
+                                         response_headers: str, limit: int = 20) -> str:
+        """Check selected 2026 Streamable HTTP request headers against a supplied
+        JSON-RPC body and response status/content type. No network access,
+        credential echo or full response-body validation. JSON inputs at most
+        200000 chars, 100 headers; limit 1-50.
+        """
+        return await _run(transport.validate_mcp_http_exchange, request, request_headers,
+                          response_status, response_headers, limit)
+
+    @mcp.tool()
+    async def validate_mcp_request_metadata(request: str, limit: int = 20) -> str:
+        """Check selected required 2026 per-request _meta fields, including
+        version and client capability shape. Client identity is not trusted
+        or returned. Input at most 200000 chars; limit 1-50.
+        """
+        return await _run(transport.validate_mcp_request_metadata, request, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_input_required_roundtrip(initial_request: str, result: str,
+                                                   retry_request: str, limit: int = 20) -> str:
+        """Check selected 2026 input_required result and retry structure,
+        including new ID, input response IDs and byte-exact requestState echo.
+        No state authenticity or content verification. Inputs at most 200000
+        chars each, 20 input requests; limit 1-50.
+        """
+        return await _run(transport.inspect_mcp_input_required_roundtrip,
+                          initial_request, result, retry_request, limit)
+
+    @mcp.tool()
+    async def inspect_mcp_auth_discovery(challenge: str, resource_metadata: str,
+                                         authorization_metadata: str, resource_url: str,
+                                         limit: int = 20) -> str:
+        """Check one supplied Bearer challenge and selected OAuth protected
+        resource/authorization server metadata offline. Requires HTTPS URLs;
+        omits URL, scope and token values. No discovery requests, token checks
+        or OAuth flow. JSON inputs at most 200000 chars; limit 1-50.
+        """
+        return await _run(transport.inspect_mcp_auth_discovery, challenge,
+                          resource_metadata, authorization_metadata, resource_url, limit)

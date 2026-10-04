@@ -1,8 +1,7 @@
 import os
+import re
+from hmac import compare_digest
 
-os.environ.setdefault("MCP_SKIP_HOST_VALIDATION", "true")
-
-import mcp.server.sse as sse_module
 import uvicorn
 from app.tools.registry import register_all_tools
 from mcp.server.fastmcp import FastMCP
@@ -12,14 +11,6 @@ from starlette.responses import JSONResponse, PlainTextResponse
 
 
 PUBLIC_PATHS = {"/", "/health"}
-
-
-def disable_mcp_host_validation() -> None:
-    """Allow Fly.io proxy hosts to reach the MCP SSE app."""
-
-    sse_module._SKIP_HOST_VALIDATION = True
-    if hasattr(sse_module, "_validate_host"):
-        sse_module._validate_host = lambda *args, **kwargs: None
 
 
 class ApiKeyAuthMiddleware:
@@ -39,13 +30,13 @@ class ApiKeyAuthMiddleware:
             return
 
         headers = {name.lower(): value for name, value in scope.get("headers", [])}
-        provided_key = headers.get(b"x-api-key", b"").decode("utf-8")
-        authorization = headers.get(b"authorization", b"").decode("utf-8")
+        provided_key = headers.get(b"x-api-key", b"")
+        authorization = headers.get(b"authorization", b"")
 
-        if authorization.lower().startswith("bearer "):
+        if authorization.lower().startswith(b"bearer "):
             provided_key = authorization[7:].strip()
 
-        if provided_key != api_key:
+        if not compare_digest(provided_key, api_key.encode("utf-8")):
             response = PlainTextResponse("Unauthorized", status_code=401)
             await response(scope, receive, send)
             return
@@ -69,8 +60,6 @@ async def health_check(request):
 
 
 def create_app():
-    disable_mcp_host_validation()
-
     allowed_hosts = [
         host.strip()
         for host in os.getenv(
@@ -79,28 +68,41 @@ def create_app():
         ).split(",")
         if host.strip()
     ]
+    allowed_origins = [
+        origin.strip()
+        for origin in os.getenv(
+            "MCP_ALLOWED_ORIGINS",
+            "https://mcpsever.fly.dev,http://localhost:*,http://127.0.0.1:*",
+        ).split(",")
+        if origin.strip()
+    ]
+    wildcard_origins = [re.escape(origin[:-2]) + r":\d+" for origin in allowed_origins
+                        if origin.endswith(":*")]
     transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=allowed_hosts,
-        allowed_origins=["https://mcpsever.fly.dev", "http://localhost:*", "http://127.0.0.1:*"],
+        allowed_origins=allowed_origins,
     )
 
     mcp = FastMCP(
         "multi-tool-server",
         host="0.0.0.0",
         stateless_http=True,
+        json_response=True,
         transport_security=transport_security,
     )
     register_all_tools(mcp)
 
-    base_app = mcp.sse_app()
+    base_app = mcp.streamable_http_app()
+    base_app.router.routes.extend(mcp.sse_app().router.routes)
     base_app.add_route("/", root_endpoint)
     base_app.add_route("/health", health_check)
     base_app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
+        allow_origins=[origin for origin in allowed_origins if not origin.endswith(":*")],
+        allow_origin_regex="^(?:" + "|".join(wildcard_origins) + ")$" if wildcard_origins else None,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 

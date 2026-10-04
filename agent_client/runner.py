@@ -1,4 +1,4 @@
-"""Run one specialist agent against the existing authenticated SSE server."""
+"""Run one specialist agent against the authenticated MCP server."""
 
 import asyncio
 from urllib.parse import urlsplit
@@ -14,7 +14,9 @@ class AgentClientError(Exception):
     """An expected, user-actionable client failure."""
 
 
-def sse_url(base_url: str) -> str:
+def mcp_url(base_url: str, transport: str = "sse") -> str:
+    if transport not in ("sse", "streamable-http"):
+        raise AgentClientError("MCP transport must be sse or streamable-http.")
     try:
         parsed = urlsplit(base_url)
         port = parsed.port
@@ -30,7 +32,11 @@ def sse_url(base_url: str) -> str:
         raise AgentClientError("MCP base URL must be the server origin, without a path.")
     if port is not None and not 1 <= port <= 65535:
         raise AgentClientError("Invalid MCP base URL port.")
-    return base_url.rstrip("/") + "/sse"
+    return base_url.rstrip("/") + ("/mcp" if transport == "streamable-http" else "/sse")
+
+
+def sse_url(base_url: str) -> str:
+    return mcp_url(base_url)
 
 
 async def run_agent(
@@ -40,6 +46,7 @@ async def run_agent(
     model: str,
     mcp_api_key: str,
     base_url: str = DEFAULT_BASE_URL,
+    transport: str = "sse",
     max_turns: int = 8,
     timeout_seconds: int = 180,
 ) -> str:
@@ -57,15 +64,16 @@ async def run_agent(
     if not 30 <= timeout_seconds <= 900:
         raise AgentClientError("timeout_seconds must be between 30 and 900.")
 
-    url = sse_url(base_url)
+    url = mcp_url(base_url, transport)
     try:
         from agents import Agent, RunConfig, Runner
-        from agents.mcp import MCPServerSse, create_static_tool_filter
+        from agents.mcp import MCPServerSse, MCPServerStreamableHttp, create_static_tool_filter
     except ImportError as exc:
         raise AgentClientError("Install the client dependencies: uv sync --project client") from exc
 
     profile = PROFILES[slug]
-    server = MCPServerSse(
+    server_class = MCPServerStreamableHttp if transport == "streamable-http" else MCPServerSse
+    server = server_class(
         params={
             "url": url,
             "headers": {"X-API-Key": mcp_api_key},

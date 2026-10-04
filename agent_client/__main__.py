@@ -21,6 +21,8 @@ def build_parser() -> argparse.ArgumentParser:
     task_input.add_argument("--task-file", type=Path, help="UTF-8 task file")
     parser.add_argument("--model", help="OpenAI model name (or set OPENAI_MODEL)")
     parser.add_argument("--base-url", help="MCP server origin (or set MCP_BASE_URL)")
+    parser.add_argument("--transport", choices=("sse", "streamable-http"), default="sse",
+                        help="Use streamable-http after deploying the /mcp endpoint.")
     parser.add_argument("--max-turns", type=int, default=8)
     parser.add_argument("--timeout-seconds", type=int, default=180)
     return parser
@@ -58,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
                 model=args.model or os.getenv("OPENAI_MODEL", ""),
                 mcp_api_key=os.getenv("MCP_API_KEY", ""),
                 base_url=args.base_url or os.getenv("MCP_BASE_URL", DEFAULT_BASE_URL),
+                transport=args.transport,
                 max_turns=args.max_turns,
                 timeout_seconds=args.timeout_seconds,
             )

@@ -13,7 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 from agent_client import PROFILES
 from agent_client.__main__ import main
-from agent_client.runner import AgentClientError, run_agent, sse_url
+from agent_client.runner import AgentClientError, mcp_url, run_agent, sse_url
 from app.tools.registry import register_all_tools
 
 
@@ -34,6 +34,8 @@ class AgentProfileTests(unittest.TestCase):
     def test_url_requires_plain_secure_origin(self):
         self.assertEqual(sse_url("https://mcpsever.fly.dev/"), "https://mcpsever.fly.dev/sse")
         self.assertEqual(sse_url("http://127.0.0.1:8000"), "http://127.0.0.1:8000/sse")
+        self.assertEqual(mcp_url("https://mcpsever.fly.dev/", "streamable-http"),
+                         "https://mcpsever.fly.dev/mcp")
         for value in (
             "http://example.com",
             "https://user:pass@example.com",
@@ -88,6 +90,7 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
         agents.Runner = FakeRunner
         agents_mcp = types.ModuleType("agents.mcp")
         agents_mcp.MCPServerSse = FakeServer
+        agents_mcp.MCPServerStreamableHttp = FakeServer
         agents_mcp.create_static_tool_filter = lambda **kwargs: kwargs
         return calls, {"agents": agents, "agents.mcp": agents_mcp}
 
@@ -111,6 +114,15 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls["agent_kwargs"]["mcp_servers"], [calls["server"]])
         self.assertEqual(calls["run"][2]["max_turns"], 8)
         self.assertEqual(calls["run_config"], {"tracing_disabled": True})
+
+    async def test_runner_can_use_streamable_http(self):
+        calls, modules = self.fake_sdk()
+        with patch.dict(sys.modules, modules):
+            output = await run_agent("research-briefing", "Research release notes",
+                                     model="test-model", mcp_api_key="server-secret",
+                                     transport="streamable-http")
+        self.assertEqual(output, "Verified answer")
+        self.assertEqual(calls["server_kwargs"]["params"]["url"], "https://mcpsever.fly.dev/mcp")
 
     async def test_missing_deployed_tools_fail_before_model_call(self):
         calls, modules = self.fake_sdk(available={"tavily_search"})
