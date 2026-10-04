@@ -9,14 +9,18 @@ from app.tools.json_utils.tool import _load_bounded_json
 _LEVEL_ALIASES = {"warn": "warning", "err": "error", "fatal": "critical"}
 
 
-def analyze(content, limit, level_field, message_field, timestamp_field):
+def analyze(content, limit, level_field, message_field, timestamp_field, *, _records=None, _event_field=None):
     if len(content) > 1000000:
         raise ValueError("Log input must not exceed 1000000 characters")
     if not 1 <= limit <= 50:
         raise ValueError("limit must be between 1 and 50")
     for field in (level_field, message_field, timestamp_field):
-        if not field or len(field) > 100 or any(ord(char) < 32 for char in field):
+        if not isinstance(field, str) or not field or len(field) > 100 or any(ord(char) < 32 for char in field):
             raise ValueError("Field names must be nonempty and at most 100 characters without controls")
+    if _event_field is not None and (not isinstance(_event_field, str) or not _event_field
+                                     or len(_event_field) > 100
+                                     or any(ord(char) < 32 for char in _event_field)):
+        raise ValueError("Field names must be nonempty and at most 100 characters without controls")
     lines = content.split("\n") if content else []
     if lines and lines[-1] == "":
         lines.pop()
@@ -47,6 +51,8 @@ def analyze(content, limit, level_field, message_field, timestamp_field):
         level = raw_level.strip().lower() if isinstance(raw_level, str) and raw_level.strip() else "unknown"
         level = _LEVEL_ALIASES.get(level, level)
         levels[level] += 1
+        if _records is not None:
+            _records.append({"level": level, "event": entry.get(_event_field) if _event_field is not None else None})
         message = entry.get(message_field)
         if isinstance(message, str) and message:
             messages[message] += 1

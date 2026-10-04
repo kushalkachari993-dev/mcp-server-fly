@@ -20,11 +20,11 @@ class DataToolsTests(unittest.IsolatedAsyncioTestCase):
         content = result[0] if isinstance(result, tuple) else result
         return "\n".join(item.text for item in content if item.type == "text")
 
-    async def test_registry_exposes_all_116_tools(self):
+    async def test_registry_exposes_all_120_tools(self):
         server = FastMCP("registry-test")
         register_all_tools(server)
         names = {tool.name for tool in await server.list_tools()}
-        self.assertEqual(len(names), 116)
+        self.assertEqual(len(names), 120)
         self.assertTrue({
             "csv_to_json", "json_to_csv", "query_json", "compare_json",
             "timestamp_to_datetime", "datetime_to_timestamp",
@@ -50,6 +50,7 @@ class DataToolsTests(unittest.IsolatedAsyncioTestCase):
             "inspect_lcov_report", "inspect_cobertura_report", "inspect_har", "inspect_k6_summary",
             "compare_coverage_reports", "compare_junit_reports", "compare_har_reports", "compare_k6_summaries",
             "compare_sarif_reports", "compare_sboms", "compare_prometheus_metrics", "compare_access_logs",
+            "inspect_otlp_traces", "compare_otlp_traces", "compare_jsonl_logs", "compare_prometheus_rule_files",
             "inspect_graphql_schema", "validate_graphql_operation", "compare_graphql_schemas", "inspect_postman_collection",
             "compare_docker_compose", "compare_kubernetes_manifests", "compare_github_actions", "compare_fly_configs",
             "profile_csv", "validate_csv_schema", "compare_csv_tables", "redact_csv_columns",

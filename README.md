@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 116 tools.
+The server registers 120 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -109,6 +109,10 @@ The server registers 116 tools.
 - `compare_sboms(before, after, limit)` - compare supplied CycloneDX components by versionless Package URL or declared coordinates, including version and license changes.
 - `compare_prometheus_metrics(before, after, limit)` - compare supplied metric snapshots by exact series identity, with gauge deltas and raw counter differences.
 - `compare_access_logs(before, after, format, limit)` - compare supplied Apache common/combined log windows by status and query-free method/path.
+- `inspect_otlp_traces(content, limit)` - summarize supplied OTLP/JSON traces by service/operation, status, duration, and parent-link availability offline.
+- `compare_otlp_traces(before, after, limit)` - compare grouped OTLP/JSON operations across supplied batches without matching trace IDs or inferring causality.
+- `compare_jsonl_logs(before, after, level_field, event_field, timestamp_field, limit)` - compare supplied structured-log severity and explicit event/error-code counts, omitting unselected messages.
+- `compare_prometheus_rule_files(before, after, limit)` - compare selected alerting/recording rule declarations without returning expressions, label values, or annotations.
 - `inspect_graphql_schema(schema_sdl, limit)` - inspect valid supplied GraphQL SDL roots, types, fields, arguments, directives, and deprecation flags offline.
 - `validate_graphql_operation(schema_sdl, document, limit)` - statically validate all supplied GraphQL operations/fragments without executing resolvers or coercing runtime variables.
 - `compare_graphql_schemas(before_sdl, after_sdl, limit)` - report GraphQL-core breaking/dangerous schema changes and separate operation-root changes offline.
@@ -1041,6 +1045,62 @@ lines remain separately visible. IPs, usernames, referrers, user agents and
 queries are omitted, but paths can still contain sensitive data. Common and
 combined logs do not provide latency; two supplied windows alone cannot prove
 traffic-normalized rates or causal regressions.
+
+Production observability examples
+---------------------------------
+
+```text
+inspect_otlp_traces(content='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"api"}}]},"scopeSpans":[{"spans":[{"traceId":"00000000000000000000000000000001","spanId":"0000000000000001","name":"GET /health","kind":2,"startTimeUnixNano":"1000000000","endTimeUnixNano":"1010000000","status":{"code":1}}]}]}]}')
+compare_otlp_traces(before='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"api"}}]},"scopeSpans":[{"spans":[{"traceId":"00000000000000000000000000000001","spanId":"0000000000000001","name":"GET /health","kind":2,"startTimeUnixNano":"1000000000","endTimeUnixNano":"1010000000","status":{"code":1}}]}]}]}', after='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"api"}}]},"scopeSpans":[{"spans":[{"traceId":"00000000000000000000000000000002","spanId":"0000000000000002","name":"GET /health","kind":2,"startTimeUnixNano":"1000000000","endTimeUnixNano":"1020000000","status":{"code":2}}]}]}]}')
+compare_jsonl_logs(before='{"event":"request_failed","level":"error","timestamp":"2026-01-01T00:00:00Z"}\n', after='{"event":"request_failed","level":"error","timestamp":"2026-01-01T00:00:00Z"}\n{"event":"request_failed","level":"error","timestamp":"2026-01-01T00:00:01Z"}\n')
+compare_prometheus_rule_files(before='groups:\n- name: api\n  rules:\n  - alert: ApiDown\n    expr: up == 0\n    for: 5m\n', after='groups:\n- name: api\n  rules:\n  - alert: ApiDown\n    expr: up == 0\n    for: 10m\n')
+```
+
+All four tools process caller-supplied text offline, with no collector, log-file,
+Prometheus, network, or command access and no new API keys. Each input is capped
+at 200,000 characters and output at 100,000 characters. `limit` defaults to 20
+and accepts 1-50 displayed rows per list; counts include all bounded records.
+Selected names/identifiers can still be sensitive, so sanitize data before
+sending it to a shared server. Neither observed changes nor unchanged selected
+fields prove production health or release safety.
+
+OTLP tools accept the JSON `ExportTraceServiceRequest` shape with
+`resourceSpans`, `scopeSpans`, and spans, not binary protobuf or vendor exports.
+They bound the JSON tree to 20,000 nodes/depth 50, 100 resource spans, 500 scope
+spans, and 2,000 spans. OTLP hex trace/span IDs, numeric kind/status enums, and
+decimal-string or numeric nanosecond timestamps are handled as specified by
+[OTLP/JSON](https://opentelemetry.io/docs/specs/otlp/). Durations are observed
+end-minus-start values in milliseconds; zero/missing timestamps remain unknown.
+Only explicit OK/ERROR statuses enter error fractions; UNSET is not success.
+Missing parent spans may indicate a partial export. Comparison groups exact
+`service.namespace`, `service.name`, span name, and kind, never cross-batch trace
+IDs. The caller must establish comparable workloads and sampling. Attributes,
+IDs, event/link content, and status messages are omitted, but names may be
+sensitive. This is selected-field inspection, not full OTLP validation.
+
+JSONL comparison reuses the structured-log parser: up to 5,000 JSON-object
+lines per input, with each line bounded to 1,000 JSON nodes/depth 20. The
+default event field is `event`; `event_field` may instead name an explicit
+error-code field. Only short token-like string or nonnegative integer event IDs
+are grouped. Missing or free-text IDs remain unmatchable. `warn`, `err`, and
+`fatal` use the existing severity aliases; unfamiliar levels become `other`.
+Error counts cover `error` and `critical` only. Invalid/blank lines and
+timestamp gaps stay visible. The default `message`
+field and other unselected fields are omitted. Explicitly selecting a field
+containing secrets can still reveal token-shaped values. Counts/fractions do
+not imply equal traffic, elapsed-time rates, or causal regressions.
+
+Prometheus rule comparison accepts bounded YAML with at most 100 groups and
+1,000 rules. Groups match exact names; rules match group, alert/record kind,
+and name. Duplicate identities remain ambiguous, while group moves are shown
+as observed removal/addition. It compares selected group order, interval,
+limit, query offset, labels, rule count, and rule order, expression, `for`,
+`keep_firing_for`, labels, and annotations. It returns changed field/key names,
+not expression or value bodies. Unrecognized fields are counted but not
+compared, so `selected_fields_equal` is not whole-file equivalence. The tool
+does not parse or evaluate PromQL, validate durations/templates, or inspect
+firing alerts; use [promtool](https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/)
+for full rule validation.
 
 GraphQL and Postman examples
 ----------------------------
