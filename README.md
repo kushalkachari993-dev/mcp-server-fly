@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 124 tools.
+The server registers 128 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -121,6 +121,10 @@ The server registers 124 tools.
 - `compare_openapi_contracts(before, after, limit)` - compare selected supplied OpenAPI declarations without claiming full compatibility.
 - `compare_postman_collections(before, after, limit)` - compare Postman v2.1 methods, sanitized targets and auth types by full folder/name identity offline.
 - `validate_openapi_json_body(spec, path, method, direction, body, status, media_type, limit)` - validate supplied JSON against a selected OpenAPI 3.1 operation schema offline.
+- `inspect_asyncapi_document(content, limit)` - inspect selected AsyncAPI 3.0.0 channels, operations, messages, content types and shallow payload shapes offline.
+- `compare_asyncapi_contracts(before, after, limit)` - compare selected AsyncAPI channel/message/operation declarations by exact IDs without a full compatibility verdict.
+- `validate_asyncapi_json_message(spec, channel_id, message_id, payload, limit)` - validate supplied JSON against one AsyncAPI channel message's supported local schema offline.
+- `validate_cloudevents_json(content, limit)` - check selected CloudEvents 1.0 structured JSON envelope rules without returning attribute or payload values.
 - `compare_docker_compose(before, after, limit)` - compare selected supplied Compose service, image/build, port, dependency, health-check and resource-name declarations offline.
 - `compare_kubernetes_manifests(before, after, limit)` - compare selected supplied Kubernetes workload/Service declarations and secret references by explicit object identity, keeping duplicates/generated names ambiguous.
 - `compare_github_actions(before, after, limit)` - compare supplied workflow triggers, explicit permissions, job runners/dependencies, action references and step sequences offline.
@@ -1234,6 +1238,47 @@ are not fully interpreted. Validation errors return JSON pointer paths, not
 body values or validator messages; paths can include caller-supplied property
 names. Each input is capped at 200,000 characters, OpenAPI analysis at 500
 operations, `limit` at 1-50, and output at 100,000 characters.
+
+Event contract examples
+-----------------------
+
+```text
+inspect_asyncapi_document(content='{"asyncapi":"3.0.0","info":{"title":"Events","version":"1"},"channels":{"orders":{"address":"orders","messages":{"created":{"payload":{"type":"object"}}}}},"operations":{"receiveOrders":{"action":"receive","channel":{"$ref":"#/channels/orders"}}}}')
+compare_asyncapi_contracts(before=old_asyncapi_text, after=new_asyncapi_text)
+validate_asyncapi_json_message(spec=asyncapi_text, channel_id="orders", message_id="created", payload='{"id":1}')
+validate_cloudevents_json(content='{"specversion":"1.0","id":"evt-1","source":"/orders","type":"com.example.created","data":{"id":1}}')
+```
+
+AsyncAPI inspection accepts supplied 3.0.0 JSON or YAML only. It reports
+selected root channels, send/receive operations, channel messages, inherited
+default content types, and shallow payload schema shapes. Comparison matches
+full channel/message/operation IDs before shortening display text; reordered
+operation message references do not count as changes. Unknown or external
+references and unsupported payload formats remain uncertain. Neither tool
+fully validates AsyncAPI, resolves traits, interprets protocol bindings, or
+proves runtime compatibility. IDs, addresses, schema property names and content
+types may contain caller-sensitive text.
+
+JSON message validation selects one channel message and requires an explicit
+JSON content type or document default. It supports the common AsyncAPI Schema
+Object subset and explicit JSON Schema Draft 7, using bounded Draft 7 checks
+in the existing three-second worker. Local `#/components/schemas/...` references
+must retain the selected schema format. External references, custom dialects,
+Avro, Protobuf, discriminator and readOnly/writeOnly semantics are rejected;
+unknown format checks and unselected AsyncAPI vocabulary are not guaranteed.
+Error paths are returned without body values or validator messages.
+
+CloudEvents validation handles one structured JSON event with `specversion`
+`1.0`. It checks required/optional attribute types, basic URI/media/timestamp
+syntax, extension value types, and `data` versus `data_base64`. It does not
+check producer uniqueness, extension-specific semantics, payload schemas,
+binary-mode transport, or batch arrays. Attribute and payload values are never
+returned. Each input is limited to 200,000 characters and 20,000 JSON nodes
+(YAML 10,000 nodes); AsyncAPI maps are capped at 500 items per level, `limit`
+at 1-50, and output at 100,000 characters. No new keys or network access are
+needed. Standards: [AsyncAPI 3.0.0](https://www.asyncapi.com/docs/reference/specification/v3.0.0),
+[CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md),
+[CloudEvents JSON format](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/formats/json-format.md).
 
 Deployment configuration comparison examples
 --------------------------------------------
