@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 179 tools.
+The server registers 183 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -228,6 +228,32 @@ Diff inspection accepts up to 200000 characters and 500 files with standard
 merge patches. Listing limits do not truncate totals. Binary additions/deletions
 are unavailable. Hunk context labels come from the patch; changed symbols are
 not inferred. C-quoted UTF-8 paths, renames, copies and mode changes are supported.
+
+
+- `get_github_issue_comments(owner, repo, number, limit, page, max_body_chars)` - read one page of public issue or PR conversation comments, with authors, dates, bounded Markdown bodies and provider pagination; excludes inline review comments.
+- `get_github_pr_diff(owner, repo, number, max_chars)` - fetch a public PR's live diff text through GitHub's diff media type, with explicit prefix truncation and downloaded/returned character counts.
+- `extract_archive_manifest(url, limit)` - download a public ZIP into memory and list central-directory paths, sizes, compression/encryption/symlink declarations, duplicate names and path warnings without reading member contents.
+- `extract_html_forms(url, limit, max_fields)` - inspect static HTML form fields, methods, query-free actions, declared required/readonly flags, fieldset disabling and submit overrides; field values are omitted.
+
+These four public inspection tools use anonymous requests and never use a
+configured GitHub token. Each download is capped at 1 MB; outputs at 200000
+characters and 10000 nodes. GitHub requests stay on `api.github.com` with
+redirects disabled. Comment pages use the requested size exactly and provider
+Link metadata to identify the next page; body shortening has separate flags.
+Comment limits are 1..50 rows, pages 1..1000, and 100..10000 body characters.
+PR diff prefixes allow 100..150000 characters and may end inside a hunk; live
+diffs are not immutable commit snapshots. See [GitHub comments](https://docs.github.com/en/rest/issues/comments)
+and [PR diff media types](https://docs.github.com/en/rest/pulls/pulls).
+
+ZIP inspection downloads the complete bounded archive before listing its
+metadata; it does not decompress members, write files or verify CRCs. At most
+5000 entries are accepted, with 1..500 listed; totals cover all entries. Size
+and path declarations are untrusted and do not constitute an extraction safety
+verdict. Static form inspection honors explicit owners (including controls
+outside forms), excludes template/noscript markup, and returns no input values,
+textarea contents, select values or action queries. It executes no JavaScript,
+submits nothing, and never fetches action targets. Listing limits are 1..50 forms
+and 1..500 controls per form; parser bounds are 20000 nodes and 100 nested levels.
 
 Data utility examples
 ---------------------
