@@ -22,13 +22,15 @@ class _Text:
         return value[:maximum]
 
 
-def _request(root, suffix="", params=None):
+def _request(root, suffix="", params=None, *, allow_empty_list=False):
     url = "https://api.github.com/" + root + suffix
     if params:
         url += "?" + urlencode(params)
     status, headers, body, _ = request_public(
         url, allowed_host="api.github.com", follow_redirects=False, timeout_seconds=25,
         headers={"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2026-03-10"})
+    if status == 204 and allow_empty_list:
+        return [], headers
     if status != 200:
         raise ValueError(f"GitHub returned HTTP {status}; check the public repository, ref/number or rate limits")
     if _header(headers, "content-type").split(";", 1)[0].strip().lower() not in {

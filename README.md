@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 187 tools.
+The server registers 200 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -283,6 +283,52 @@ mergeability. Current/original/null comment locations are preserved without
 inferring outdated or resolved threads. PR conversation comments remain in
 get_github_issue_comments. See [GitHub reviews](https://docs.github.com/en/rest/pulls/reviews)
 and [review comments](https://docs.github.com/en/rest/pulls/comments).
+
+
+- `list_github_issues(owner, repo, state, labels, limit, page, max_body_chars)` - list public issues by update time with optional state and comma-separated label filters, excluding PRs and bounding body excerpts.
+- `list_github_pull_requests(owner, repo, state, base, head, limit, page)` - list public PRs with draft flags, dates, authors and base/head refs and SHAs; optional base and owner:branch head filters.
+- `list_github_branches(owner, repo, limit, page)` - list public branch names, associated commit SHAs and provider protected flags without inferring effective branch rules.
+- `list_github_tags(owner, repo, limit, page)` - list public tag names and commit SHAs in provider order without assuming semantic version ordering.
+- `list_github_commits(owner, repo, ref, path, limit, page, max_message_chars)` - read bounded commit history, optionally by ref/path, with messages, dates, parent SHAs and provider verification declarations.
+- `list_github_contributors(owner, repo, limit, page)` - list linked public contributor identities and cached contribution counts without email addresses or anonymous contributor expansion.
+- `get_github_repository_languages(owner, repo, limit)` - report public repository language byte counts and shares using the full provider response; these are not line counts or runtime usage.
+- `get_github_repository_license(owner, repo, ref, max_chars)` - decode the provider-detected inline UTF-8 license file with SPDX metadata, file SHA and explicit content shortening; no linked content retrieval.
+- `list_github_workflows(owner, repo, limit, page)` - list public GitHub Actions workflow IDs, paths, names, states and provider total counts without downloading YAML.
+- `get_github_workflow_run(owner, repo, run_id)` - read public run details including attempt, workflow ID, status/conclusion, head commit, triggering actor and associated PR numbers.
+- `get_github_workflow_job(owner, repo, job_id, max_steps)` - read a public job's steps, status/conclusion, runner declarations, dates and run/head identifiers, with explicit step truncation.
+- `get_github_release(owner, repo, tag, max_body_chars)` - read one public release by tag or GitHub's latest published non-draft/non-prerelease selection, returning its ID, dates, flags and bounded release notes.
+- `list_github_release_assets(owner, repo, release_id, limit, page)` - list uploaded release asset metadata with sizes, download links, counts and declared digests without downloading binaries or verifying hashes.
+
+All 13 repository/CI/release research tools are anonymous, read-only, and use
+one fixed-host API request with redirects disabled. Downloads are capped at
+1 MB and outputs at 200000 characters/10000 nodes. Text/list shortening has
+explicit flags; paginated endpoints use exact requested page sizes (1..50),
+page numbers 1..1000, and provider Link metadata for next-page availability.
+The truncated flag describes shortened selected content, while has_more
+indicates provider pagination. Issue pages count PR rows before exclusion, so
+an empty issue list may still have another page. Labels are an AND filter;
+PR lists accept an optional head filter in owner:branch form.
+
+History refs and release tags use bounded ASCII Git references. Commit messages
+and issue bodies allow 100..10000 characters; license content and release notes
+allow 100..50000. Language listing limits are 1..500; job step limits are 1..100.
+Contributors may be cached and do not establish maintainership. Missing optional
+fields remain null, including pending workflow conclusions. License 404s remain
+errors rather than legal conclusions; decoded file length must match the declared
+size. Release selection follows GitHub semantics rather than version sorting.
+Uploaded assets exclude automatically generated source archives. Declared
+signatures, protected flags, immutable flags and digests are provider evidence,
+not independent verification, release-readiness or deployment proof.
+
+Endpoint references: [repository data](https://docs.github.com/en/rest/repos/repos),
+[issues](https://docs.github.com/en/rest/issues/issues),
+[PRs](https://docs.github.com/en/rest/pulls/pulls),
+[commit history](https://docs.github.com/en/rest/commits/commits),
+[workflows](https://docs.github.com/en/rest/actions/workflows),
+[workflow runs](https://docs.github.com/en/rest/actions/workflow-runs),
+[workflow jobs](https://docs.github.com/en/rest/actions/workflow-jobs),
+[releases](https://docs.github.com/en/rest/releases/releases), and
+[assets](https://docs.github.com/en/rest/releases/assets).
 
 Data utility examples
 ---------------------
