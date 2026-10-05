@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 176 tools.
+The server registers 179 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -205,6 +205,29 @@ which enables format checks. Limits are 200000 characters per input/output,
 10000 nodes, 50 nested levels and a 3-second worker timeout. Two schema development
 workers may run concurrently. Listing limits (1..1000) do not reduce the number of
 records evaluated. Inference reflects observed samples, not guaranteed contracts.
+
+
+- `search_github_code(query, limit, page)` - search public default-branch code for matching file paths, repository names, SHAs and links; requires server-side `GITHUB_SEARCH_TOKEN` and returns no source content.
+- `search_github_issues(query, limit, page)` - search public issues anonymously, excluding pull requests; returns titles, states, links and bounded body excerpts.
+- `inspect_git_diff(content, limit)` - inspect supplied standard Git unified patches for paths, statuses, modes, observed line counts, binary markers and hunk context labels without accessing files or executing Git.
+
+GitHub search uses REST query syntax with one request per call, limit 1..50 and
+page 1..20. Responses expose provider total counts, incomplete-result indicators
+and whether additional results exist within the first 1000 matches. OR queries
+are unsupported; issue search rejects pull-request qualifiers and code search
+rejects private visibility qualifiers. Code search authenticates only against
+`api.github.com`, disables redirects, and excludes private/unknown-visibility
+results. Configure `GITHUB_SEARCH_TOKEN` in the server environment (or as a Fly
+secret); callers cannot supply tokens. Existing GitHub tools remain anonymous.
+No token is needed for issue search or offline diff inspection. GitHub results
+are untrusted content. See [GitHub search documentation](https://docs.github.com/en/rest/search/search)
+for indexing restrictions and rate limits.
+
+Diff inspection accepts up to 200000 characters and 500 files with standard
+`diff --git` headers and a/ b/ prefixes; it rejects incomplete hunks and combined
+merge patches. Listing limits do not truncate totals. Binary additions/deletions
+are unavailable. Hunk context labels come from the patch; changed symbols are
+not inferred. C-quoted UTF-8 paths, renames, copies and mode changes are supported.
 
 Data utility examples
 ---------------------
