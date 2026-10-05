@@ -174,7 +174,7 @@ class DeployedCatalogComparisonTests(unittest.IsolatedAsyncioTestCase):
         from scripts.test_deployed_mcp import _local_tool_names
 
         names = await _local_tool_names()
-        self.assertEqual(len(names), 183)
+        self.assertEqual(len(names), 187)
         self.assertTrue({"inspect_mcp_sse_trace", "inspect_mcp_session_recovery",
                          "inspect_mcp_tool_retry_risk"}.issubset(names))
 

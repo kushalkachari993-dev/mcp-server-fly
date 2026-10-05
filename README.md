@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 183 tools.
+The server registers 187 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -254,6 +254,35 @@ outside forms), excludes template/noscript markup, and returns no input values,
 textarea contents, select values or action queries. It executes no JavaScript,
 submits nothing, and never fetches action targets. Listing limits are 1..50 forms
 and 1..500 controls per form; parser bounds are 20000 nodes and 100 nested levels.
+
+
+- `get_github_repository(owner, repo)` - read public repository metadata including default branch, declared license, archived/disabled/fork flags, topics, language and metrics; missing optional values remain null.
+- `list_github_repository_tree(owner, repo, ref, recursive, limit)` - browse public Git trees with paths, object SHAs, modes, sizes and symlink/submodule indicators; returns the tree SHA and separate provider/listing/text truncation flags.
+- `get_github_pr_reviews(owner, repo, number, limit, page, max_body_chars)` - read a chronological page of public PR review records with authors, states, bodies, submission times and reviewed commits; state counts describe that page only.
+- `get_github_pr_review_comments(owner, repo, number, limit, page, max_body_chars)` - read public PR review comments with file paths, current/original locations, sides, reviewed commits, review IDs and reply IDs; diff hunks are omitted.
+
+Repository navigation and review tools are anonymous and read-only, with no
+configured tokens or redirects. Downloads are capped at 1 MB per request,
+outputs at 200000 characters/10000 nodes, and text shortening is flagged.
+Repository license metadata is a provider declaration; open_issues_and_prs
+includes both issues and pull requests, and subscribers differs from stars.
+
+Tree browsing accepts an explicit ASCII branch/tag/SHA (up to 200 characters),
+or resolves the default branch with a second request when ref is empty. The
+listing limit is 1..500. Recursion is enabled by default; with recursive=false
+the recursion parameter is omitted entirely. Large tree responses error at the
+download bound; browse non-recursively and pass returned subtree SHAs for
+further exploration. Provider entry counts cover only the received response,
+and provider truncation explicitly marks an incomplete inventory. File contents
+and submodule repository contents are not fetched. See [GitHub trees](https://docs.github.com/en/rest/git/trees).
+
+Review pages use exact page sizes (1..50), page numbers 1..1000, bounded bodies
+(100..10000 characters), and provider Link metadata for next-page availability.
+They do not determine effective approvals, required-review satisfaction or
+mergeability. Current/original/null comment locations are preserved without
+inferring outdated or resolved threads. PR conversation comments remain in
+get_github_issue_comments. See [GitHub reviews](https://docs.github.com/en/rest/pulls/reviews)
+and [review comments](https://docs.github.com/en/rest/pulls/comments).
 
 Data utility examples
 ---------------------
