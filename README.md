@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 164 tools.
+The server registers 170 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -173,6 +173,21 @@ The server registers 164 tools.
 - `compare_sql_schemas(before, after, dialect, limit)` - compare selected declarations in supplied SQL schema snapshots by qualified normalized identifiers; no rename guesses or migration safety verdict.
 - `transpile_sql(sql, source_dialect, target_dialect)` - translate supplied SQL between supported dialects, raising on known unsupported translations and returning complete SQL without executing it.
 - `extract_sql_lineage(sql, column, dialect, schema_json, limit)` - trace one SELECT output's static projection column dependencies through aliases/CTEs/set queries, keeping unresolved references explicit.
+
+
+- `inspect_jsonl(content, limit)` - summarize supplied JSON Lines record types, top-level field types, missing fields among object records, and malformed line numbers without returning values.
+- `jsonl_to_json(content)` - convert supplied JSON Lines to a complete JSON array, ignoring blank lines and rejecting any malformed record without partial output.
+- `json_to_jsonl(value)` - convert a supplied JSON array to LF-separated compact JSON records without a trailing newline.
+- `flatten_json(value)` - flatten nested objects to escaped JSON Pointer paths, preserving arrays and empty objects intact for reversible conversion.
+- `unflatten_json(value)` - reconstruct supplied JSON Pointer/value maps with object intermediates, rejecting ancestor/descendant conflicts; numeric path tokens remain object keys.
+- `redact_json_fields(value, pointers_json, mask)` - mask explicitly selected existing JSON Pointer values, rejecting missing, duplicate or overlapping paths; unselected values remain in output.
+
+These six offline transformation tools bound each input/output to 200000 characters,
+JSON trees to 10000 nodes and 50 nested levels, and reject duplicate object keys
+and non-finite numbers. JSONL records split on LF; inspection ignores blank lines
+and reports invalid line numbers. Conversions return complete output or an error.
+Flattening preserves arrays as leaf values; the empty pointer represents the root.
+Redaction accepts at most 100 pointers and returns the complete masked document.
 
 Data utility examples
 ---------------------
