@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 170 tools.
+The server registers 176 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -188,6 +188,23 @@ and non-finite numbers. JSONL records split on LF; inspection ignores blank line
 and reports invalid line numbers. Conversions return complete output or an error.
 Flattening preserves arrays as leaf values; the empty pointer represents the root.
 Redaction accepts at most 100 pointers and returns the complete masked document.
+
+
+- `inspect_json_schema(schema, limit)` - inspect supplied JSON Schema nodes, types, required fields, constraints and local reference status without expanding references.
+- `compare_json_schemas(before, after, limit)` - compare supplied schema declaration paths (including annotations) without returning values or claiming compatibility; arrays compare as whole values.
+- `infer_json_schema(examples)` - infer a draft 2020-12 schema from a nonempty array of supplied sample documents, with explicit uncertainty and permissive additional properties.
+- `validate_jsonl_schema(content, schema, limit)` - validate LF-delimited JSONL records, reporting malformed lines and one value-free diagnostic per failing record by one-based line number.
+- `validate_json_schema_batch(value, schema, limit)` - validate every supplied array item, reporting counts and bounded value-free diagnostics by zero-based index.
+- `resolve_json_schema_pointer(schema, pointer)` - extract an object or boolean schema node by escaped JSON Pointer, without expanding its references.
+
+Schema development tools support canonical draft-07, 2019-09 and 2020-12 dialect
+URIs, defaulting to 2020-12. Only local fragment `$ref` references are supported;
+`$id`, dynamic/recursive references and nested dialect changes are rejected.
+Batch validation treats formats as annotations, unlike `validate_json_schema`,
+which enables format checks. Limits are 200000 characters per input/output,
+10000 nodes, 50 nested levels and a 3-second worker timeout. Two schema development
+workers may run concurrently. Listing limits (1..1000) do not reduce the number of
+records evaluated. Inference reflects observed samples, not guaranteed contracts.
 
 Data utility examples
 ---------------------
