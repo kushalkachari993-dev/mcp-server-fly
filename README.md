@@ -7,7 +7,7 @@ tools that can be connected to from other projects or production AI clients.
 Available tools
 ---------------
 
-The server registers 200 tools.
+The server registers 213 tools.
 
 - `get_weather(location)` - current weather for a city via OpenWeather.
 - `tavily_search(query)` - web search via Tavily.
@@ -329,6 +329,100 @@ Endpoint references: [repository data](https://docs.github.com/en/rest/repos/rep
 [workflow jobs](https://docs.github.com/en/rest/actions/workflow-jobs),
 [releases](https://docs.github.com/en/rest/releases/releases), and
 [assets](https://docs.github.com/en/rest/releases/assets).
+
+Indian stock-market tools
+-------------------------
+
+These 13 tools use official Upstox APIs for NSE/BSE research and market data:
+
+- `search_indian_stocks(query, exchange, segment, limit, page)` - find instruments by name, symbol or ISIN; exchange NSE/BSE/BOTH, segment EQ/INDEX/FO, up to 30 results per page.
+- `get_indian_market_quotes(instrument_keys)` - Upstox V3 snapshots for up to 50 comma-separated equity, index or equity-derivative instrument keys, including OHLC, volume, five-level depth and missing-instrument reporting.
+- `get_indian_stock_history(instrument_key, from_date, to_date, unit, interval, limit)` - historical OHLCV and optional open interest; select the latest received candles, return them oldest first and flag shortening.
+- `get_indian_company_profile(isin)` - company description, sector and sector market capitalisation with original INR/USD units.
+- `get_indian_financial_statements(isin, statement, statement_type, time_period, full_statement)` - income statement, balance sheet or cash flow; consolidated/standalone data and optional detailed line items.
+- `get_indian_stock_ratios(isin)` - provider P/E, P/B, ROA, ROE, ROCE and EV/EBITDA values and sector benchmarks.
+- `get_indian_shareholding(isin)` - quarterly promoter, FII, DII and public ownership percentages.
+- `get_indian_corporate_actions(isin, limit)` - dividends, splits, bonuses and rights events, preserving provider order and dates; up to 100 events with explicit truncation.
+- `get_indian_market_calendar(kind, exchange, date)` - current NSE/BSE exchange status, market sessions for a date, or current-year/date-specific holidays.
+- `get_indian_option_chain(instrument_key, expiry_date, limit)` - call/put strikes, open interest, prices and available Greeks for an equity/index underlying; up to 100 strikes in provider order with truncation.
+- `get_indian_fii_dii_activity(investor, segment, interval, from_date)` - institutional buying/selling and contract data, selecting FII or DII and daily/monthly provider records.
+- `get_indian_stock_news(instrument_keys, limit, page)` - recent headlines, summaries, article links and publication times for up to 30 instrument keys, with provider pagination.
+- `get_indian_ipos(status, issue_type, limit, page, ipo_id)` - list open/upcoming/closed/listed mainboard or SME IPOs, or retrieve a listing's slug ID for detailed pricing, lot size, timeline and subscription information.
+
+Configure `UPSTOX_ANALYTICS_TOKEN` in the server environment. Generate the
+read-only token under **Upstox Developer Apps > Analytics**; the token is free
+and valid for one year, according to the [Analytics Token documentation](https://upstox.com/developer/api-documentation/analytics-token/).
+The tools make only GET requests to `api.upstox.com`; no account portfolio,
+orders, IPO applications or linked news/prospectus downloads are accessed.
+No caller-supplied token or arbitrary provider URL is accepted. The optional
+token is needed only when calling these tools; registration works without it.
+Missing/invalid credentials, authorization failures and rate limits return
+controlled errors without exposing the token or provider error bodies.
+
+Each call makes one request with a 15-second deadline and a 1 MB download cap,
+with redirects and retries disabled. Provider JSON and final output are limited
+to 200000 characters, 10000 nodes and 50 nesting levels. Oversized responses
+return an error; request a shorter history range or smaller page. Listed
+truncation has separate counts and flags. Search/IPO pages accept 1..100,
+with 1..30 rows per page; news accepts 1..100 pages and 1..100 rows per page.
+Provider pagination metadata is preserved, and search/IPO `has_more` is null
+when the provider does not supply a usable total page count. `next_page` is
+null at the local page cap even when the provider reports more pages.
+
+Use the `instrument_key` returned by search for quotes/history/options, and
+the 12-character Indian `isin` for fundamentals. Quotes accept NSE/BSE equity,
+index and equity-derivative keys; option chains require an equity/index
+underlying. Prices are in INR. Financial-statement monetary amounts are in
+INR crore (1 crore = 10000000 INR); field-specific units remain authoritative.
+Profile market capitalisation is for the **sector**, not the company. Ratios
+and shareholding percentages preserve their original provider representation.
+`fetched_at` is the UTC retrieval time; source publication, trading and
+reporting timestamps are retained and are the evidence of data age. The
+exchange timezone is Asia/Kolkata. Quotes may contain last-session data when
+the market is closed; no corporate-action adjustment or data freshness is
+inferred.
+
+History requires inclusive YYYY-MM-DD dates. Units are minutes (interval
+1..300), hours (1..5), days/weeks/months (interval 1). Local range caps are
+31 days for minute intervals <=15, 92 days for larger minute intervals and
+hours, 10 years for days, and 20 years for weeks/months; provider and response
+limits also apply. `limit` 1..500 selects the latest received candles. Only
+income statements accept `time_period="quarterly"`; balance-sheet and
+cash-flow requests use provider reporting periods and reject that selector.
+Calendar `exchange` applies to `kind="status"`; timings and holidays include
+all provider exchanges/segments. Timings default to today's IST date; status
+is current and rejects a date. Option expiry accepts a date or current/next/far
+week/month keywords; strike truncation does not select strikes around ATM.
+
+FII supports `NSE_EQ|CASH` and `NSE_FO|INDEX_FUTURES`, `STOCK_FUTURES`,
+`INDEX_OPTIONS`, `STOCK_OPTIONS`; DII supports `NSE_EQ|CASH` only. Intervals
+are `1D`/`1M`, with provider coverage starting 2026-04-01, up to 30 trading
+days or 12 months per request. News covers the past seven days and uses only
+the public instrument-keys category. IPO `issue_type` is regular/sme or empty
+for both; `ipo_id` selects details and ignores the list filters. Provider
+values, missing data and linked source content are untrusted research inputs.
+
+Examples:
+
+```python
+search_indian_stocks(query="RELIANCE", exchange="NSE")
+get_indian_market_quotes(instrument_keys="NSE_EQ|INE002A01018,NSE_INDEX|Nifty 50")
+get_indian_stock_history(instrument_key="NSE_EQ|INE002A01018", from_date="2026-09-01", to_date="2026-09-30")
+get_indian_financial_statements(isin="INE002A01018", time_period="quarterly")
+get_indian_market_calendar(kind="timings", date="2026-10-06")
+get_indian_option_chain(instrument_key="NSE_INDEX|Nifty 50", expiry_date="next_week")
+get_indian_fii_dii_activity(investor="DII")
+get_indian_ipos(status="upcoming")
+```
+
+Endpoint references: [instrument search](https://upstox.com/developer/api-documentation/instrument-search/),
+[V3 quotes](https://upstox.com/developer/api-documentation/get-full-market-quote-v3/),
+[historical candles](https://upstox.com/developer/api-documentation/v3/get-historical-candle-data/),
+[fundamentals](https://upstox.com/developer/api-documentation/fundamentals/),
+[market information](https://upstox.com/developer/api-documentation/market-information/),
+[option chain](https://upstox.com/developer/api-documentation/get-pc-option-chain/),
+[news](https://upstox.com/developer/api-documentation/get-news/), and
+[IPOs](https://upstox.com/developer/api-documentation/ipo/).
 
 Data utility examples
 ---------------------
@@ -2144,6 +2238,21 @@ OPENWEATHER_API_KEY=
 TAVILY_API_KEY=
 MCP_API_KEY=
 ```
+
+Optional server credentials (also listed in `.env.example`):
+
+```env
+GITHUB_SEARCH_TOKEN=
+UPSTOX_ANALYTICS_TOKEN=
+```
+
+For Indian market tools on Fly.io, set `UPSTOX_ANALYTICS_TOKEN` as an app
+secret before calling them. Locally, export it in the server process environment
+or launch uvicorn with `--env-file .env`; keep real tokens out of source control.
+Generate/renew the token in [Upstox Developer Apps](https://account.upstox.com/developer/apps).
+API request and plan limits follow the provider's current documentation;
+expired derivative history and Upstox Plus streaming features are outside
+this batch.
 
 `MCP_API_KEY` protects all MCP/tool routes. `/` and `/health` remain public so
 Fly.io health checks can work. If `MCP_API_KEY` is not set, authentication is

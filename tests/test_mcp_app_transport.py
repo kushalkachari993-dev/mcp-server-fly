@@ -34,7 +34,7 @@ class McpAppTransportTests(unittest.IsolatedAsyncioTestCase):
                                                                 "method": "tools/list", "params": {}},
                                                headers=_HEADERS)
                     self.assertEqual(listed.status_code, 200)
-                    self.assertEqual(len(listed.json()["result"]["tools"]), 200)
+                    self.assertEqual(len(listed.json()["result"]["tools"]), 213)
                     called = await client.post("/mcp", json={"jsonrpc": "2.0", "id": 3,
                                                                "method": "tools/call",
                                                                "params": {"name": "calculate",
